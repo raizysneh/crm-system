@@ -2,20 +2,16 @@ import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
 
 function getAdminClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-  if (!serviceKey) {
-    throw new Error("SUPABASE_SERVICE_ROLE_KEY חסר ב-.env.local");
-  }
-  return createClient(url, serviceKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  });
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false } }
+  );
 }
 
 export async function GET() {
   try {
-    const admin = getAdminClient();
-    const { data, error } = await admin.from("users").select("*").order("full_name");
+    const { data, error } = await getAdminClient().from("users").select("*").order("full_name");
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
     return NextResponse.json({ data });
   } catch (err: any) {
@@ -27,38 +23,59 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const { email, password, full_name, role, phone } = body;
-
     const admin = getAdminClient();
 
+    // Check if the email already has a public.users row
+    const { data: existingRow } = await admin.from("users").select("id").eq("email", email).maybeSingle();
+    if (existingRow) {
+      return NextResponse.json({ error: "משתמש עם מייל זה כבר קיים במערכת" }, { status: 400 });
+    }
+
+    // Try to create in Supabase Auth
     const { data: authData, error: authError } = await admin.auth.admin.createUser({
       email,
       password: password || "Temp123456!",
-      user_metadata: { full_name, role },
-      email_confirm: true,
+      email_confirm: true, // auto-confirm — no email verification needed
     });
 
+    let authUserId: string;
+
     if (authError) {
-      return NextResponse.json({ error: authError.message }, { status: 400 });
-    }
-
-    if (authData.user) {
-      const { error: dbError } = await admin.from("users").insert({
-        id: authData.user.id,
-        full_name,
-        email,
-        role: role || "employee",
-        phone: phone || null,
-        status: "active",
-      });
-
-      if (dbError) {
-        // Rollback auth user if DB insert failed
-        await admin.auth.admin.deleteUser(authData.user.id);
-        return NextResponse.json({ error: dbError.message }, { status: 400 });
+      // If auth user already exists (from a previous failed attempt), recover it
+      if (authError.message.includes("already been registered") || authError.message.includes("already registered")) {
+        // Find existing auth user by listing and filtering
+        const { data: list } = await admin.auth.admin.listUsers({ perPage: 1000 });
+        const existing = list?.users?.find(u => u.email === email);
+        if (!existing) return NextResponse.json({ error: authError.message }, { status: 400 });
+        authUserId = existing.id;
+        // Update password if provided
+        if (password) {
+          await admin.auth.admin.updateUserById(authUserId, { password });
+        }
+      } else {
+        return NextResponse.json({ error: authError.message }, { status: 400 });
       }
+    } else {
+      authUserId = authData.user.id;
     }
 
-    return NextResponse.json({ user: authData.user });
+    // Insert into public.users
+    const { error: dbError } = await admin.from("users").insert({
+      id: authUserId,
+      full_name,
+      email,
+      role: role || "employee",
+      phone: phone || null,
+      status: "active",
+    });
+
+    if (dbError) {
+      // Only rollback if we just created the auth user (not recovered)
+      if (!authError) await admin.auth.admin.deleteUser(authUserId);
+      return NextResponse.json({ error: dbError.message }, { status: 400 });
+    }
+
+    return NextResponse.json({ ok: true });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
@@ -67,9 +84,21 @@ export async function POST(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   try {
     const body = await req.json();
-    const { id, full_name, role, phone, password } = body;
-
+    const { id, full_name, role, phone, password, send_invite, email } = body;
     const admin = getAdminClient();
+
+    // Send password-reset / invite email
+    if (send_invite && email) {
+      const { error } = await admin.auth.admin.generateLink({
+        type: "recovery",
+        email,
+        options: { redirectTo: `${process.env.NEXT_PUBLIC_APP_URL || ""}/login` },
+      });
+      if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+      return NextResponse.json({ ok: true });
+    }
+
+    if (!id) return NextResponse.json({ error: "חסר id" }, { status: 400 });
 
     const { error: dbError } = await admin.from("users").update({
       full_name,
@@ -84,7 +113,7 @@ export async function PATCH(req: NextRequest) {
       if (error) return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ ok: true });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
@@ -94,12 +123,10 @@ export async function DELETE(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
-    if (!id) return NextResponse.json({ error: "חסר מזהה משתמש" }, { status: 400 });
+    if (!id) return NextResponse.json({ error: "חסר id" }, { status: 400 });
 
-    const admin = getAdminClient();
-    await admin.from("users").update({ status: "inactive" }).eq("id", id);
-
-    return NextResponse.json({ success: true });
+    await getAdminClient().from("users").update({ status: "inactive" }).eq("id", id);
+    return NextResponse.json({ ok: true });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }

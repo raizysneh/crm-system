@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Save, Plus, Edit, Trash2, User, Shield, Timer, MessageSquare, Bell } from "lucide-react";
+import { Save, Plus, Edit, Trash2, User, Shield, Timer, MessageSquare, Bell, Send } from "lucide-react";
 import Header from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -60,16 +60,34 @@ export default function SettingsPage() {
 
   const handleToggleUser = async (u: UserType) => {
     const newStatus = u.status === "active" ? "inactive" : "active";
-    const { error } = await supabase.from("users").update({ status: newStatus }).eq("id", u.id);
-    if (error) toast.error("שגיאה");
+    const res = await fetch("/api/users", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: u.id, full_name: u.full_name, role: u.role, phone: u.phone, status: newStatus }),
+    });
+    if (!res.ok) toast.error("שגיאה בעדכון");
     else { toast.success("המשתמש עודכן"); loadUsers(); }
   };
 
   const handleDeleteUser = async (id: string) => {
     if (!confirm("למחוק משתמש זה?")) return;
-    const { error } = await supabase.from("users").update({ status: "inactive" }).eq("id", id);
-    if (error) toast.error("שגיאה");
+    const res = await fetch(`/api/users?id=${id}`, { method: "DELETE" });
+    if (!res.ok) toast.error("שגיאה");
     else { toast.success("המשתמש הושבת"); loadUsers(); }
+  };
+
+  const handleSendInvite = async (u: UserType) => {
+    const res = await fetch("/api/users", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ send_invite: true, email: u.email }),
+    });
+    if (!res.ok) {
+      const j = await res.json();
+      toast.error(j.error || "שגיאה בשליחת ההזמנה");
+    } else {
+      toast.success(`מייל הזמנה נשלח ל-${u.email}`);
+    }
   };
 
   const getRoleBadge = (role: string) => {
@@ -132,6 +150,10 @@ export default function SettingsPage() {
                           </Badge>
                         </div>
                         <div className="flex gap-1">
+                          <button onClick={() => handleSendInvite(u)} title="שלח הזמנה במייל"
+                            className="p-1.5 rounded-md hover:bg-blue-50 text-blue-400">
+                            <Send className="h-4 w-4" />
+                          </button>
                           <button onClick={() => { setEditUser(u); setShowUserForm(true); }} className="p-1.5 rounded-md hover:bg-[#f1f5f9] text-[#64748b]">
                             <Edit className="h-4 w-4" />
                           </button>
