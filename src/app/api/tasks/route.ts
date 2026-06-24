@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
 
     let q = admin()
       .from("tasks")
-      .select(`*, customer:customers(id,company_name,logo_url), project:projects(id,name), assigned_user:users(id,full_name), subtasks(id,completed)`)
+      .select(`*, customer:customers(id,company_name,logo_url), project:projects(id,name), assigned_user:users!assigned_user_id(id,full_name), subtasks(id,completed)`)
       .order("created_at", { ascending: false });
 
     if (role === "employee" && userId) q = q.eq("assigned_user_id", userId);
