@@ -73,24 +73,27 @@ function secsToInput(secs: number) {
 }
 
 const PDF_STYLE = `
+  @import url('https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;600;700&display=swap');
   *{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:Arial,sans-serif;font-size:12px;color:#0f172a;padding:24px;direction:rtl}
-  h1{font-size:18px;font-weight:700;margin-bottom:4px}
-  .meta{font-size:11px;color:#64748b;margin-bottom:20px}
-  .summary{display:flex;gap:16px;margin-bottom:20px;flex-wrap:wrap}
-  .stat{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 16px}
-  .stat-val{font-size:18px;font-weight:700;color:#16a34a}
-  .stat-lbl{font-size:10px;color:#64748b}
-  table{width:100%;border-collapse:collapse;margin-bottom:20px}
-  thead{background:#16a34a;color:white}
-  th{padding:8px 10px;text-align:right;font-size:11px;font-weight:600}
-  td{padding:7px 10px;font-size:11px;border-bottom:1px solid #f1f5f9}
+  body{font-family:'Heebo',Arial,sans-serif;font-size:13px;line-height:1.6;color:#1e293b;padding:28px 32px;direction:rtl}
+  h1{font-size:22px;font-weight:700;margin-bottom:6px;color:#0f172a;letter-spacing:-0.3px}
+  .meta{font-size:12px;color:#64748b;margin-bottom:24px}
+  .summary{display:flex;gap:14px;margin-bottom:24px;flex-wrap:wrap}
+  .stat{background:#f0fdf4;border:1.5px solid #bbf7d0;border-radius:10px;padding:12px 20px;min-width:110px}
+  .stat-val{font-size:22px;font-weight:700;color:#16a34a;letter-spacing:-0.5px}
+  .stat-lbl{font-size:11px;color:#64748b;margin-top:2px;font-weight:500}
+  table{width:100%;border-collapse:collapse;margin-bottom:24px;border-radius:8px;overflow:hidden}
+  thead{background:#16a34a}
+  th{padding:10px 14px;text-align:right;font-size:12px;font-weight:600;color:white;letter-spacing:0.2px}
+  td{padding:9px 14px;font-size:13px;border-bottom:1px solid #f1f5f9;color:#334155}
   tr:nth-child(even) td{background:#f8fafc}
-  .dur{font-family:monospace;color:#16a34a;font-weight:600}
-  .day-header{background:#f1f5f9;font-weight:700;padding:8px 10px;font-size:12px;margin-top:12px}
-  .day-total{color:#16a34a;font-family:monospace}
-  .sub-row td{padding:5px 10px 5px 20px;font-size:11px;border-bottom:1px solid #f8fafc;color:#374151}
-  @media print{@page{margin:15mm;size:A4}body{padding:0}}
+  tr:hover td{background:#f0fdf4}
+  .dur{font-family:'Courier New',monospace;color:#16a34a;font-weight:700;font-size:13px}
+  .day-header{background:#e2e8f0;font-weight:700;padding:10px 14px;font-size:14px;margin-top:16px;border-radius:6px;display:flex;justify-content:space-between;align-items:center}
+  .day-total{color:#16a34a;font-family:'Courier New',monospace;font-size:14px}
+  .sub-row td{padding:7px 14px 7px 24px;font-size:12px;border-bottom:1px solid #f8fafc;color:#475569}
+  .footer{margin-top:28px;padding-top:12px;border-top:1px solid #e2e8f0;font-size:11px;color:#94a3b8;text-align:center}
+  @media print{@page{margin:18mm;size:A4}body{padding:0}tr{page-break-inside:avoid}}
 `;
 
 // ── EntryRow — inline-editable row ─────────────────────────────────────────
@@ -365,7 +368,8 @@ export default function ReportsPage() {
     setExportOpen(false);
     const rows=getRows(); if(!rows.length) return;
     const headers=Object.keys(rows[0]);
-    const csv=[headers,...rows.map(r=>Object.values(r))].map(r=>r.join(",")).join("\n");
+    const escapeCSV = (v: any) => `"${String(v ?? "").replace(/"/g,'""')}"`;
+    const csv=[headers.map(escapeCSV).join(","),...rows.map(r=>Object.values(r).map(escapeCSV).join(","))].join("\n");
     const blob=new Blob(["﻿"+csv],{type:"text/csv;charset=utf-8;"});
     const url=URL.createObjectURL(blob);
     const a=document.createElement("a"); a.href=url; a.download=`דוח_${dateFrom}_${dateTo}.csv`; a.click();
@@ -429,13 +433,17 @@ export default function ReportsPage() {
     }
 
     const html=`<!DOCTYPE html><html dir="rtl" lang="he"><head><meta charset="UTF-8"><title>${title}</title>
+      <link rel="preconnect" href="https://fonts.googleapis.com">
+      <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;600;700&display=swap" rel="stylesheet">
       <style>${PDF_STYLE}</style></head><body>
       <h1>${title}</h1><p class="meta">הופק: ${nowStr}</p>
       <div class="summary">
         <div class="stat"><div class="stat-val">${totalStr}</div><div class="stat-lbl">סה"כ שעות</div></div>
         <div class="stat"><div class="stat-val">${entries.length}</div><div class="stat-lbl">רשומות</div></div>
         <div class="stat"><div class="stat-val">${customerGroups.length}</div><div class="stat-lbl">לקוחות</div></div>
-      </div>${bodyHTML}</body></html>`;
+      </div>${bodyHTML}
+      <div class="footer">דוח זמנים · ${nowStr}</div>
+      </body></html>`;
 
     const win=window.open("","_blank");
     if(!win) return;

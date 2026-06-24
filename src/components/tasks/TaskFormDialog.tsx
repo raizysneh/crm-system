@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Plus, X } from "lucide-react";
+import { Plus, X, RotateCcw, ChevronDown } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,6 +15,12 @@ import { supabase } from "@/lib/supabase/client";
 import { Customer, User, Task, Project } from "@/types";
 import { toast } from "sonner";
 import { useAuthStore } from "@/store/authStore";
+
+const DAYS_HE = [
+  { key:"sun", label:"א׳" }, { key:"mon", label:"ב׳" }, { key:"tue", label:"ג׳" },
+  { key:"wed", label:"ד׳" }, { key:"thu", label:"ה׳" }, { key:"fri", label:"ו׳" },
+  { key:"sat", label:"ש׳" },
+];
 
 const schema = z.object({
   title: z.string().min(1, "שם משימה נדרש"),
@@ -28,6 +34,13 @@ const schema = z.object({
   notify_client_on_complete: z.boolean().optional(),
   notes: z.string().optional(),
   subtasks: z.array(z.object({ title: z.string().min(1) })).optional(),
+  is_recurring: z.boolean().optional(),
+  recurrence_type: z.enum(["daily","weekly","monthly","yearly","custom"]).optional(),
+  recurrence_interval: z.number().optional(),
+  recurrence_days: z.array(z.string()).optional(),
+  recurrence_end_type: z.enum(["never","date","count"]).optional(),
+  recurrence_end_date: z.string().optional(),
+  recurrence_end_count: z.number().optional(),
 });
 
 type FormData = z.infer<typeof schema>;
@@ -45,6 +58,7 @@ export default function TaskFormDialog({ task, clients, employees, onClose, onSa
   const [loading, setLoading] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedClient, setSelectedClient] = useState(task?.customer_id || "");
+  const [showRecurring, setShowRecurring] = useState(!!(task?.is_recurring));
 
   const { register, handleSubmit, watch, setValue, control, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(schema),
@@ -60,6 +74,13 @@ export default function TaskFormDialog({ task, clients, employees, onClose, onSa
       notify_client_on_complete: task?.notify_client_on_complete || false,
       notes: task?.notes || "",
       subtasks: [],
+      is_recurring: task?.is_recurring || false,
+      recurrence_type: task?.recurrence_type || "weekly",
+      recurrence_interval: task?.recurrence_interval || 1,
+      recurrence_days: task?.recurrence_days || [],
+      recurrence_end_type: task?.recurrence_end_type || "never",
+      recurrence_end_date: task?.recurrence_end_date || "",
+      recurrence_end_count: task?.recurrence_end_count || 10,
     },
   });
 
@@ -94,6 +115,13 @@ export default function TaskFormDialog({ task, clients, employees, onClose, onSa
         notify_client_on_complete: data.notify_client_on_complete || false,
         notes: data.notes || null,
         created_by: user?.id,
+        is_recurring: data.is_recurring || false,
+        recurrence_type: data.is_recurring ? data.recurrence_type : null,
+        recurrence_interval: data.is_recurring ? (data.recurrence_interval || 1) : null,
+        recurrence_days: data.is_recurring && data.recurrence_type === "weekly" ? (data.recurrence_days || []) : null,
+        recurrence_end_type: data.is_recurring ? data.recurrence_end_type : null,
+        recurrence_end_date: data.is_recurring && data.recurrence_end_type === "date" ? data.recurrence_end_date : null,
+        recurrence_end_count: data.is_recurring && data.recurrence_end_type === "count" ? data.recurrence_end_count : null,
       };
 
       if (task?.id) {
@@ -239,6 +267,112 @@ export default function TaskFormDialog({ task, clients, employees, onClose, onSa
               ))}
             </div>
           )}
+
+          {/* Recurring task */}
+          <div className="border border-[#e2e8f0] rounded-xl overflow-hidden">
+            <button
+              type="button"
+              onClick={() => { setShowRecurring(!showRecurring); setValue("is_recurring", !showRecurring); }}
+              className="w-full flex items-center justify-between px-4 py-3 hover:bg-[#f8fafc] transition-colors"
+            >
+              <span className="flex items-center gap-2 text-sm font-medium text-[#374151]">
+                <RotateCcw className="h-4 w-4 text-[#16a34a]" /> משימה חוזרת
+                {showRecurring && <span className="text-xs bg-[#16a34a] text-white px-1.5 py-0.5 rounded-full">פעיל</span>}
+              </span>
+              <ChevronDown className={`h-4 w-4 text-[#94a3b8] transition-transform ${showRecurring ? "rotate-180" : ""}`} />
+            </button>
+
+            {showRecurring && (
+              <div className="px-4 pb-4 pt-2 space-y-3 border-t border-[#f1f5f9] bg-[#f8fafc]">
+                {/* Frequency */}
+                <div className="space-y-1.5">
+                  <Label>תדירות</Label>
+                  <Select value={watch("recurrence_type") || "weekly"} onValueChange={v => setValue("recurrence_type", v as any)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="daily">יומי</SelectItem>
+                      <SelectItem value="weekly">שבועי</SelectItem>
+                      <SelectItem value="monthly">חודשי</SelectItem>
+                      <SelectItem value="yearly">שנתי</SelectItem>
+                      <SelectItem value="custom">מותאם אישית</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Interval for custom */}
+                {(watch("recurrence_type") === "custom" || watch("recurrence_type") === "daily") && (
+                  <div className="flex items-center gap-2">
+                    <Label className="whitespace-nowrap">כל</Label>
+                    <Input type="number" min={1} className="w-20"
+                      {...register("recurrence_interval", { valueAsNumber: true })} />
+                    <span className="text-sm text-[#64748b]">
+                      {watch("recurrence_type") === "daily" ? "ימים" : "ימים"}
+                    </span>
+                  </div>
+                )}
+
+                {/* Days of week for weekly */}
+                {watch("recurrence_type") === "weekly" && (
+                  <div className="space-y-1.5">
+                    <Label>ימים בשבוע</Label>
+                    <div className="flex gap-1.5 flex-wrap">
+                      {DAYS_HE.map(({ key, label }) => {
+                        const days = watch("recurrence_days") || [];
+                        const active = days.includes(key);
+                        return (
+                          <button key={key} type="button"
+                            onClick={() => setValue("recurrence_days",
+                              active ? days.filter(d => d !== key) : [...days, key]
+                            )}
+                            className={`w-9 h-9 rounded-full text-sm font-medium border transition-colors ${
+                              active ? "bg-[#16a34a] text-white border-[#16a34a]" : "border-[#e2e8f0] text-[#374151] hover:border-[#16a34a]"
+                            }`}
+                          >{label}</button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Monthly day */}
+                {watch("recurrence_type") === "monthly" && (
+                  <div className="flex items-center gap-2">
+                    <Label className="whitespace-nowrap">ביום</Label>
+                    <Input type="number" min={1} max={31} className="w-20"
+                      {...register("recurrence_interval", { valueAsNumber: true })} />
+                    <span className="text-sm text-[#64748b]">לחודש</span>
+                  </div>
+                )}
+
+                {/* End condition */}
+                <div className="space-y-1.5">
+                  <Label>סיום חזרתיות</Label>
+                  <Select value={watch("recurrence_end_type") || "never"} onValueChange={v => setValue("recurrence_end_type", v as any)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="never">ללא הגבלה</SelectItem>
+                      <SelectItem value="date">עד תאריך</SelectItem>
+                      <SelectItem value="count">מספר מופעים</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {watch("recurrence_end_type") === "date" && (
+                  <div className="space-y-1.5">
+                    <Label>תאריך סיום</Label>
+                    <Input type="date" {...register("recurrence_end_date")} />
+                  </div>
+                )}
+                {watch("recurrence_end_type") === "count" && (
+                  <div className="flex items-center gap-2">
+                    <Label className="whitespace-nowrap">מספר פעמים</Label>
+                    <Input type="number" min={1} className="w-24"
+                      {...register("recurrence_end_count", { valueAsNumber: true })} />
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
 
           {/* Notify client */}
           <label className="flex items-center gap-2 cursor-pointer">

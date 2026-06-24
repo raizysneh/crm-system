@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Users, Timer, CheckSquare, AlertCircle, TrendingUp, Clock, Building2, Calendar } from "lucide-react";
+import { Users, Timer, CheckSquare, AlertCircle, TrendingUp, Clock, Building2, Calendar, Zap } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import Header from "@/components/layout/Header";
 import { supabase } from "@/lib/supabase/client";
@@ -16,6 +16,17 @@ interface Stats {
   active_clients: number;
   completed_today: number;
   total_clients: number;
+  efficiency?: number;
+  month_timer_hours?: number;
+  month_attendance_hours?: number;
+}
+
+interface EmployeeEfficiency {
+  user_id: string;
+  full_name: string;
+  timer_hours: number;
+  attendance_hours: number;
+  efficiency: number;
 }
 
 export default function DashboardPage() {
@@ -29,6 +40,7 @@ export default function DashboardPage() {
     total_clients: 0,
   });
   const [recentTasks, setRecentTasks] = useState<any[]>([]);
+  const [employeeEfficiency, setEmployeeEfficiency] = useState<EmployeeEfficiency[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -38,8 +50,9 @@ export default function DashboardPage() {
   const loadDashboard = async () => {
     try {
       const today = new Date().toISOString().split("T")[0];
+      const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split("T")[0];
 
-      const [tasksRes, clientsRes, timeRes] = await Promise.all([
+      const [tasksRes, clientsRes, timeRes, monthTimerRes, attendanceRes, usersRes] = await Promise.all([
         supabase.from("tasks").select("id, status, due_date, title, priority, customer:customers(company_name)")
           .neq("status", "cancelled")
           .order("created_at", { ascending: false })
@@ -49,16 +62,57 @@ export default function DashboardPage() {
           .select("duration")
           .gte("start_time", today + "T00:00:00")
           .lte("start_time", today + "T23:59:59"),
+        supabase.from("time_entries")
+          .select("user_id, duration")
+          .gte("start_time", monthStart + "T00:00:00"),
+        supabase.from("attendance")
+          .select("user_id, total_hours")
+          .gte("check_in", monthStart + "T00:00:00"),
+        supabase.from("users").select("id, full_name").eq("role", "employee").eq("status", "active"),
       ]);
 
       const tasks = tasksRes.data || [];
       const clients = clientsRes.data || [];
       const timeEntries = timeRes.data || [];
+      const monthTimers = monthTimerRes.data || [];
+      const attendances = attendanceRes.data || [];
+      const employees = usersRes.data || [];
 
       const openTasks = tasks.filter(t => !["completed", "cancelled"].includes(t.status)).length;
       const overdue = tasks.filter(t => t.due_date && new Date(t.due_date) < new Date() && t.status !== "completed").length;
       const completedToday = tasks.filter(t => t.status === "completed").length;
       const todaySeconds = timeEntries.reduce((sum, e) => sum + (e.duration || 0), 0);
+
+      // Efficiency: timer_hours / attendance_hours * 100 per employee
+      const efficiencyMap: Record<string, { timer: number; attendance: number; name: string }> = {};
+      employees.forEach(e => { efficiencyMap[e.id] = { timer: 0, attendance: 0, name: e.full_name }; });
+      monthTimers.forEach((t: any) => {
+        if (efficiencyMap[t.user_id]) efficiencyMap[t.user_id].timer += (t.duration || 0);
+      });
+      attendances.forEach((a: any) => {
+        // total_hours is stored in seconds (see attendance checkout)
+        if (efficiencyMap[a.user_id]) efficiencyMap[a.user_id].attendance += (a.total_hours || 0);
+      });
+
+      const efficiencies: EmployeeEfficiency[] = Object.entries(efficiencyMap)
+        .filter(([, v]) => v.attendance > 0 || v.timer > 0)
+        .map(([uid, v]) => ({
+          user_id: uid,
+          full_name: v.name,
+          timer_hours: v.timer / 3600,
+          attendance_hours: v.attendance / 3600,
+          efficiency: v.attendance > 0 ? Math.round((v.timer / v.attendance) * 100) : 0,
+        }))
+        .sort((a, b) => b.efficiency - a.efficiency);
+
+      setEmployeeEfficiency(efficiencies);
+
+      const totalTimerHours = monthTimers.reduce((s: number, e: any) => s + (e.duration || 0), 0) / 3600;
+      const totalAttendanceSeconds = attendances.reduce((s: number, a: any) => s + (a.total_hours || 0), 0);
+      const totalAttendanceHours = totalAttendanceSeconds / 3600;
+      const overallEfficiency = totalAttendanceHours > 0
+        ? Math.round((totalTimerHours / totalAttendanceHours) * 100)
+        : 0;
 
       setStats({
         open_tasks: openTasks,
@@ -67,6 +121,9 @@ export default function DashboardPage() {
         active_clients: clients.filter(c => c.status === "active").length,
         completed_today: completedToday,
         total_clients: clients.length,
+        efficiency: overallEfficiency,
+        month_timer_hours: totalTimerHours,
+        month_attendance_hours: totalAttendanceHours,
       });
 
       setRecentTasks(tasks.slice(0, 5));
@@ -164,6 +221,51 @@ export default function DashboardPage() {
           color="bg-green-50 text-green-600"
         />
       </div>
+
+      {/* Efficiency metric — admin only */}
+      {user?.role === "admin" && employeeEfficiency.length > 0 && (
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Zap className="h-4 w-4 text-yellow-500" /> יעילות עובדים — החודש
+            </CardTitle>
+            <div className="text-sm text-[#64748b]">
+              יעילות כוללת:
+              <span className={`mr-1 font-bold ${(stats.efficiency || 0) >= 80 ? "text-green-600" : (stats.efficiency || 0) >= 50 ? "text-yellow-500" : "text-red-500"}`}>
+                {stats.efficiency || 0}%
+              </span>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {employeeEfficiency.slice(0, 5).map(emp => (
+                <div key={emp.user_id} className="flex items-center gap-4">
+                  <div className="w-8 h-8 rounded-full bg-[#f1f5f9] flex items-center justify-center text-xs font-bold text-[#64748b] shrink-0">
+                    {emp.full_name.charAt(0)}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between mb-1">
+                      <p className="text-sm font-medium text-[#0f172a] truncate">{emp.full_name}</p>
+                      <span className={`text-sm font-bold ml-2 shrink-0 ${emp.efficiency >= 80 ? "text-green-600" : emp.efficiency >= 50 ? "text-yellow-500" : "text-red-500"}`}>
+                        {emp.efficiency}%
+                      </span>
+                    </div>
+                    <div className="w-full bg-[#f1f5f9] rounded-full h-1.5">
+                      <div
+                        className={`h-1.5 rounded-full transition-all ${emp.efficiency >= 80 ? "bg-green-500" : emp.efficiency >= 50 ? "bg-yellow-400" : "bg-red-400"}`}
+                        style={{ width: `${Math.min(100, emp.efficiency)}%` }}
+                      />
+                    </div>
+                    <p className="text-xs text-[#94a3b8] mt-0.5">
+                      {emp.timer_hours.toFixed(1)}h טיימר / {emp.attendance_hours.toFixed(1)}h נוכחות
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Recent Tasks */}
       <Card>

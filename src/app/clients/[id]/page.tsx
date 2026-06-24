@@ -35,7 +35,7 @@ export default function ClientDetailPage() {
         supabase.from("customers").select("*, phones:customer_phones(*)").eq("id", id).single(),
         supabase.from("tasks").select("*, assigned_user:users(full_name)").eq("customer_id", id).order("created_at", { ascending: false }).limit(20),
         supabase.from("projects").select("*").eq("customer_id", id).order("created_at", { ascending: false }),
-        supabase.from("time_entries").select("*, user:users(full_name)").eq("customer_id", id).order("start_time", { ascending: false }).limit(20),
+        supabase.from("time_entries").select("*, user:users(full_name), task:tasks(id,title)").eq("customer_id", id).order("start_time", { ascending: false }).limit(20),
       ]);
 
       if (clientRes.error) throw clientRes.error;

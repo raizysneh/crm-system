@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Timer, MoreVertical, CheckCircle, AlertCircle, Calendar, User } from "lucide-react";
+import { Timer, MoreVertical, CheckCircle, AlertCircle, Calendar, User, Pencil, RotateCcw } from "lucide-react";
 import { Task } from "@/types";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -17,9 +17,10 @@ interface Props {
   task: Task;
   onStatusChange: (id: string, status: string) => void;
   onRefresh: () => void;
+  onEdit?: (task: Task) => void;
 }
 
-export default function TaskCard({ task, onStatusChange, onRefresh }: Props) {
+export default function TaskCard({ task, onStatusChange, onRefresh, onEdit }: Props) {
   const { startTimer } = useTimerStore();
   const { user } = useAuthStore();
 
@@ -45,8 +46,8 @@ export default function TaskCard({ task, onStatusChange, onRefresh }: Props) {
 
   const handleDelete = async () => {
     if (!confirm("למחוק משימה זו לצמיתות?")) return;
-    const { error } = await supabase.from("tasks").delete().eq("id", task.id);
-    if (error) toast.error("שגיאה במחיקה");
+    const res = await fetch(`/api/tasks?id=${task.id}`, { method: "DELETE" });
+    if (!res.ok) toast.error("שגיאה במחיקה");
     else { toast.success("המשימה נמחקה"); onRefresh(); }
   };
 
@@ -99,6 +100,11 @@ export default function TaskCard({ task, onStatusChange, onRefresh }: Props) {
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start">
+                  {onEdit && (
+                    <DropdownMenuItem onClick={() => onEdit(task)}>
+                      <Pencil className="h-4 w-4" /> ערוך משימה
+                    </DropdownMenuItem>
+                  )}
                   <DropdownMenuItem onClick={handleStartTimer}>
                     <Timer className="h-4 w-4" /> הפעל טיימר
                   </DropdownMenuItem>
@@ -138,6 +144,11 @@ export default function TaskCard({ task, onStatusChange, onRefresh }: Props) {
                 <Calendar className="h-3 w-3" />
                 {new Date(task.due_date).toLocaleDateString("he-IL")}
                 {overdue && " (איחור!)"}
+              </span>
+            )}
+            {task.is_recurring && (
+              <span className="flex items-center gap-1 text-[#16a34a] font-medium">
+                <RotateCcw className="h-3 w-3" /> חוזרת
               </span>
             )}
           </div>

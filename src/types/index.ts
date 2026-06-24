@@ -78,7 +78,16 @@ export interface Task {
   priority: TaskPriority;
   start_date?: string;
   due_date?: string;
+  notes?: string;
   notify_client_on_complete?: boolean;
+  is_recurring?: boolean;
+  recurrence_type?: "daily" | "weekly" | "monthly" | "yearly" | "custom";
+  recurrence_interval?: number;
+  recurrence_days?: string[];
+  recurrence_end_type?: "never" | "date" | "count";
+  recurrence_end_date?: string;
+  recurrence_end_count?: number;
+  recurrence_parent_id?: string;
   created_by?: string;
   created_at: string;
   updated_at?: string;

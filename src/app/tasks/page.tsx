@@ -1,12 +1,13 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Plus, Search, Filter, List, Columns, CheckSquare } from "lucide-react";
+import { Plus, Search, Filter, List, Columns, CheckSquare, AlertTriangle, Check, X } from "lucide-react";
 import Header from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { supabase } from "@/lib/supabase/client";
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 import { Task, Customer, User } from "@/types";
 import { useAuthStore } from "@/store/authStore";
 import { toast } from "sonner";
@@ -25,6 +26,7 @@ export default function TasksPage() {
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState<ViewMode>("list");
   const [showForm, setShowForm] = useState(false);
+  const [editTask, setEditTask] = useState<Task | null>(null);
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterPriority, setFilterPriority] = useState("all");
@@ -92,6 +94,28 @@ export default function TasksPage() {
     completed: tasks.filter(t => t.status === "completed").length,
   };
 
+  const pendingDeletion = tasks.filter(t => t.pending_deletion);
+
+  const handleApproveDeletion = async (taskId: string) => {
+    const res = await fetch(`/api/tasks?id=${taskId}`, { method: "DELETE" });
+    if (!res.ok) {
+      toast.error("שגיאה במחיקה");
+      return;
+    }
+    toast.success("המשימה נמחקה");
+    loadData();
+  };
+
+  const handleRejectDeletion = async (taskId: string) => {
+    await fetch("/api/tasks", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: taskId, pending_deletion: false }),
+    });
+    toast.success("בקשת המחיקה נדחתה");
+    loadData();
+  };
+
   return (
     <div>
       <Header title="משימות" />
@@ -110,6 +134,38 @@ export default function TasksPage() {
             </div>
           ))}
         </div>
+
+        {/* Pending deletion approval — admin only */}
+        {user?.role === "admin" && pendingDeletion.length > 0 && (
+          <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <AlertTriangle className="h-4 w-4 text-red-500" />
+              <p className="text-sm font-semibold text-red-700">בקשות מחיקה ממתינות לאישור ({pendingDeletion.length})</p>
+            </div>
+            <div className="space-y-2">
+              {pendingDeletion.map(t => (
+                <div key={t.id} className="flex items-center gap-3 bg-white rounded-lg p-3 border border-red-100">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-[#0f172a] truncate">{t.title}</p>
+                    <p className="text-xs text-[#64748b]">{t.customer?.company_name}</p>
+                  </div>
+                  <button
+                    onClick={() => handleApproveDeletion(t.id)}
+                    className="flex items-center gap-1 text-xs px-2.5 py-1.5 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
+                  >
+                    <Check className="h-3.5 w-3.5" /> אשר מחיקה
+                  </button>
+                  <button
+                    onClick={() => handleRejectDeletion(t.id)}
+                    className="flex items-center gap-1 text-xs px-2.5 py-1.5 border border-[#e2e8f0] text-[#374151] rounded-lg hover:bg-[#f8fafc] transition-colors"
+                  >
+                    <X className="h-3.5 w-3.5" /> דחה
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Actions */}
         <div className="flex items-center gap-3 flex-wrap">
@@ -163,7 +219,7 @@ export default function TasksPage() {
             </button>
           </div>
 
-          <Button onClick={() => setShowForm(true)}>
+          <Button onClick={() => { setEditTask(null); setShowForm(true); }}>
             <Plus className="h-4 w-4" /> משימה חדשה
           </Button>
         </div>
@@ -181,7 +237,8 @@ export default function TasksPage() {
         ) : viewMode === "list" ? (
           <div className="space-y-2">
             {filteredTasks.map(task => (
-              <TaskCard key={task.id} task={task} onStatusChange={handleStatusChange} onRefresh={loadData} />
+              <TaskCard key={task.id} task={task} onStatusChange={handleStatusChange} onRefresh={loadData}
+                onEdit={t => { setEditTask(t); setShowForm(true); }} />
             ))}
           </div>
         ) : (
@@ -191,9 +248,10 @@ export default function TasksPage() {
 
       {showForm && (
         <TaskFormDialog
+          task={editTask}
           clients={clients}
           employees={employees}
-          onClose={() => setShowForm(false)}
+          onClose={() => { setShowForm(false); setEditTask(null); }}
           onSave={loadData}
         />
       )}

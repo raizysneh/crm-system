@@ -84,7 +84,7 @@ export async function POST(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   try {
     const body = await req.json();
-    const { id, full_name, role, phone, password, send_invite, email } = body;
+    const { id, full_name, role, phone, password, send_invite, email, status } = body;
     const admin = getAdminClient();
 
     // Send password-reset / invite email
@@ -100,11 +100,9 @@ export async function PATCH(req: NextRequest) {
 
     if (!id) return NextResponse.json({ error: "חסר id" }, { status: 400 });
 
-    const { error: dbError } = await admin.from("users").update({
-      full_name,
-      role,
-      phone: phone || null,
-    }).eq("id", id);
+    const updateData: any = { full_name, role, phone: phone || null };
+    if (status !== undefined) updateData.status = status;
+    const { error: dbError } = await admin.from("users").update(updateData).eq("id", id);
 
     if (dbError) return NextResponse.json({ error: dbError.message }, { status: 400 });
 

@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, Users, FolderOpen, CheckSquare, Timer,
   Clock, BarChart3, Settings, MessageSquare, Calendar,
-  FileText, LogOut, Building2, Menu, X
+  FileText, LogOut, Building2, Menu, X, History
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/authStore";
@@ -24,6 +24,7 @@ const adminNav = [
   { href: "/chat", icon: MessageSquare, label: "צ'אט" },
   { href: "/calendar", icon: Calendar, label: "לוח שנה" },
   { href: "/documents", icon: FileText, label: "נהלים" },
+  { href: "/audit", icon: History, label: "יומן פעולות" },
   { href: "/settings", icon: Settings, label: "הגדרות" },
 ];
 
