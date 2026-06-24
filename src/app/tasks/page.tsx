@@ -37,28 +37,21 @@ export default function TasksPage() {
   const loadData = async () => {
     setLoading(true);
     try {
-      let query = supabase.from("tasks").select(`
-        *,
-        customer:customers(id, company_name, logo_url),
-        project:projects(id, name),
-        assigned_user:users(id, full_name),
-        subtasks(id, completed)
-      `).order("created_at", { ascending: false });
-
-      if (user?.role === "employee") {
-        query = query.eq("assigned_user_id", user.id);
-      }
-      if (filterStatus !== "all") query = query.eq("status", filterStatus);
-      if (filterPriority !== "all") query = query.eq("priority", filterPriority);
-      if (filterClient !== "all") query = query.eq("customer_id", filterClient);
+      const params = new URLSearchParams();
+      if (user?.role === "employee") { params.set("role", "employee"); params.set("user_id", user.id); }
+      if (filterStatus !== "all")   params.set("status", filterStatus);
+      if (filterPriority !== "all") params.set("priority", filterPriority);
+      if (filterClient !== "all")   params.set("customer_id", filterClient);
 
       const [tasksRes, clientsRes, usersRes] = await Promise.all([
-        query,
+        fetch(`/api/tasks?${params}`).then(r => r.json()),
         supabase.from("customers").select("id, company_name").eq("status", "active"),
         supabase.from("users").select("id, full_name").eq("role", "employee").eq("status", "active"),
       ]);
 
-      const tasksWithProgress = (tasksRes.data || []).map(task => ({
+      if (tasksRes.error) throw new Error(tasksRes.error);
+
+      const tasksWithProgress = (tasksRes.data || []).map((task: any) => ({
         ...task,
         subtasks_count: task.subtasks?.length || 0,
         completed_subtasks: task.subtasks?.filter((s: any) => s.completed).length || 0,

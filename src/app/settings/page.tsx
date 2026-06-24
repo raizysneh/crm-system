@@ -30,8 +30,9 @@ export default function SettingsPage() {
   }, []);
 
   const loadUsers = async () => {
-    const { data } = await supabase.from("users").select("*").order("full_name");
-    setUsers(data || []);
+    const res = await fetch("/api/users");
+    const json = await res.json();
+    setUsers(json.data || []);
   };
 
   const loadSettings = async () => {
