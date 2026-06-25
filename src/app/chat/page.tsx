@@ -100,6 +100,13 @@ export default function ChatPage() {
     return () => document.removeEventListener("click", handler);
   }, []);
 
+  // Request desktop notification permission on mount
+  useEffect(() => {
+    if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission();
+    }
+  }, []);
+
   // Realtime messages + reactions
   useEffect(() => {
     if (!activeConv) return;
@@ -110,7 +117,19 @@ export default function ChatPage() {
           const { data } = await supabase.from("chat_messages")
             .select("*, sender:users(id, full_name, avatar_url)")
             .eq("id", payload.new.id).single();
-          if (data) setMessages(prev => prev.some(m => m.id === data.id) ? prev : [...prev, data]);
+          if (!data) return;
+          // Only add if not already in state (own messages added optimistically)
+          setMessages(prev => prev.some(m => m.id === data.id) ? prev : [...prev, data]);
+          // Desktop notification for messages from others when tab is not focused
+          if (data.sender_id !== user?.id && document.hidden) {
+            if ("Notification" in window && Notification.permission === "granted") {
+              new Notification(data.sender?.full_name || "הודעה חדשה", {
+                body: (data as any).message_type === "voice" ? "🎤 הודעה קולית" : data.content,
+                icon: "/favicon.ico",
+                tag: data.conversation_id,
+              });
+            }
+          }
         })
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "chat_messages", filter: `conversation_id=eq.${activeConv.id}` },
         (payload) => {
@@ -199,17 +218,21 @@ export default function ChatPage() {
   const handleSend = async () => {
     if (!newMessage.trim() || !activeConv || !user) return;
     setSending(true);
+    const content = newMessage.trim();
+    const replyToId = replyTo?.id || null;
+    setNewMessage("");
+    setReplyTo(null);
+    if (textareaRef.current) textareaRef.current.style.height = "40px";
     try {
-      await supabase.from("chat_messages").insert({
+      const { data: inserted } = await supabase.from("chat_messages").insert({
         conversation_id: activeConv.id,
         sender_id: user.id,
-        content: newMessage.trim(),
+        content,
         message_type: "text",
-        reply_to: replyTo?.id || null,
-      });
-      setNewMessage("");
-      setReplyTo(null);
-      if (textareaRef.current) textareaRef.current.style.height = "40px";
+        reply_to: replyToId,
+      }).select("*, sender:users(id, full_name, avatar_url)").single();
+      // Add immediately to state — don't wait for realtime event
+      if (inserted) setMessages(prev => prev.some(m => m.id === inserted.id) ? prev : [...prev, inserted]);
       await supabase.from("chat_conversations").update({ updated_at: new Date().toISOString() }).eq("id", activeConv.id);
     } catch { toast.error("שגיאה בשליחה"); }
     finally { setSending(false); }
@@ -219,7 +242,8 @@ export default function ChatPage() {
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mr = new MediaRecorder(stream, { mimeType: "audio/webm" });
+      const mimeType = MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "audio/mp4";
+      const mr = new MediaRecorder(stream, { mimeType });
       audioChunksRef.current = [];
       mr.ondataavailable = e => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
       mr.onstop = () => { stream.getTracks().forEach(t => t.stop()); sendVoice(); };
@@ -253,19 +277,23 @@ export default function ChatPage() {
 
   const sendVoice = async () => {
     if (!user || !activeConv || audioChunksRef.current.length === 0) return;
-    const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
-    const path = `voice/${activeConv.id}/${Date.now()}.webm`;
+    const mimeUsed = MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "audio/mp4";
+    const ext = mimeUsed === "audio/webm" ? "webm" : "mp4";
+    const blob = new Blob(audioChunksRef.current, { type: mimeUsed });
+    const path = `voice/${activeConv.id}/${Date.now()}.${ext}`;
     const { error: uploadErr } = await supabase.storage.from("attachments").upload(path, blob);
     if (uploadErr) { toast.error("שגיאה בשליחת ההקלטה"); return; }
     const { data: { publicUrl } } = supabase.storage.from("attachments").getPublicUrl(path);
-    await supabase.from("chat_messages").insert({
+    const replyToId = replyTo?.id || null;
+    setReplyTo(null);
+    const { data: inserted } = await supabase.from("chat_messages").insert({
       conversation_id: activeConv.id,
       sender_id: user.id,
       content: publicUrl,
       message_type: "voice",
-      reply_to: replyTo?.id || null,
-    });
-    setReplyTo(null);
+      reply_to: replyToId,
+    }).select("*, sender:users(id, full_name, avatar_url)").single();
+    if (inserted) setMessages(prev => prev.some(m => m.id === inserted.id) ? prev : [...prev, inserted]);
     await supabase.from("chat_conversations").update({ updated_at: new Date().toISOString() }).eq("id", activeConv.id);
   };
 
@@ -427,9 +455,9 @@ export default function ChatPage() {
     : messages;
 
   // Members not yet in group
-  const nonMembers = users.filter(u =>
-    !getConvMembers(activeConv!).some(m => m.id === u.id)
-  );
+  const nonMembers = activeConv
+    ? users.filter(u => !getConvMembers(activeConv).some(m => m.id === u.id))
+    : [];
 
   return (
     <div className="flex flex-col" style={{ height: "calc(100vh - 0px)" }}>

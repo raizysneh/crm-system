@@ -15,7 +15,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="he" dir="rtl" className="h-full">
-      <body className="min-h-full bg-background text-foreground antialiased">
+      <body className="min-h-full bg-background text-foreground antialiased" suppressHydrationWarning>
         <Providers>
           {children}
           <Toaster position="top-center" richColors dir="rtl" />
