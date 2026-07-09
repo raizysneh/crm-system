@@ -67,7 +67,7 @@ export default function TaskFormDialog({ task, clients, employees, onClose, onSa
       description: task?.description || "",
       customer_id: task?.customer_id || "",
       project_id: task?.project_id || "",
-      assigned_user_id: task?.assigned_user_id || "",
+      assigned_user_id: task?.assigned_user_id || user?.id || "",
       priority: task?.priority || "medium",
       status: task?.status || "new",
       due_date: task?.due_date ? task.due_date.split("T")[0] : "",
@@ -103,43 +103,52 @@ export default function TaskFormDialog({ task, clients, employees, onClose, onSa
   const onSubmit = async (data: FormData) => {
     setLoading(true);
     try {
-      const taskData = {
-        title: data.title,
-        description: data.description || null,
-        customer_id: data.customer_id,
-        project_id: data.project_id || null,
-        assigned_user_id: data.assigned_user_id || null,
-        priority: data.priority,
-        status: data.status,
-        due_date: data.due_date || null,
-        notify_client_on_complete: data.notify_client_on_complete || false,
-        notes: data.notes || null,
-        created_by: user?.id,
-        is_recurring: data.is_recurring || false,
-        recurrence_type: data.is_recurring ? data.recurrence_type : null,
-        recurrence_interval: data.is_recurring ? (data.recurrence_interval || 1) : null,
-        recurrence_days: data.is_recurring && data.recurrence_type === "weekly" ? (data.recurrence_days || []) : null,
-        recurrence_end_type: data.is_recurring ? data.recurrence_end_type : null,
-        recurrence_end_date: data.is_recurring && data.recurrence_end_type === "date" ? data.recurrence_end_date : null,
-        recurrence_end_count: data.is_recurring && data.recurrence_end_type === "count" ? data.recurrence_end_count : null,
+      // Shared fields — never include recurring columns unless used (avoids errors if DB migration not run)
+      const sharedFields: Record<string, any> = {
+        title:             data.title,
+        description:       data.description || null,
+        customer_id:       data.customer_id,
+        project_id:        data.project_id  || null,
+        assigned_user_id:  data.assigned_user_id || null,
+        priority:          data.priority,
+        status:            data.status,
+        due_date:          data.due_date    || null,
+        notes:             data.notes       || null,
       };
 
+      if (data.is_recurring) {
+        Object.assign(sharedFields, {
+          is_recurring:         true,
+          recurrence_type:      data.recurrence_type,
+          recurrence_interval:  data.recurrence_interval || 1,
+          recurrence_days:      data.recurrence_type === "weekly" ? (data.recurrence_days || []) : null,
+          recurrence_end_type:  data.recurrence_end_type,
+          recurrence_end_date:  data.recurrence_end_type === "date" ? (data.recurrence_end_date || null) : null,
+          recurrence_end_count: data.recurrence_end_type === "count" ? data.recurrence_end_count : null,
+        });
+      } else if (task?.is_recurring) {
+        // Turn off recurrence if it was previously on
+        sharedFields.is_recurring = false;
+      }
+
       if (task?.id) {
+        // PATCH: never overwrite created_by
         const res = await fetch("/api/tasks", {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: task.id, ...taskData }),
+          body: JSON.stringify({ id: task.id, ...sharedFields }),
         });
         const json = await res.json();
-        if (!res.ok) throw new Error(json.error);
+        if (!res.ok) throw new Error(json.error || JSON.stringify(json));
       } else {
+        // POST: set created_by only on creation
         const res = await fetch("/api/tasks", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...taskData, subtasks: data.subtasks || [] }),
+          body: JSON.stringify({ ...sharedFields, created_by: user?.id, subtasks: data.subtasks || [] }),
         });
         const json = await res.json();
-        if (!res.ok) throw new Error(json.error);
+        if (!res.ok) throw new Error(json.error || JSON.stringify(json));
       }
 
       toast.success(task ? "המשימה עודכנה" : "המשימה נוצרה");

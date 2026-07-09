@@ -23,6 +23,7 @@ export default function SettingsPage() {
   const [editUser, setEditUser] = useState<UserType | null>(null);
   const [settings, setSettings] = useState<any>({});
   const [savingSettings, setSavingSettings] = useState(false);
+  const [testEmailLoading, setTestEmailLoading] = useState(false);
 
   useEffect(() => {
     loadUsers();
@@ -74,6 +75,26 @@ export default function SettingsPage() {
     const res = await fetch(`/api/users?id=${id}`, { method: "DELETE" });
     if (!res.ok) toast.error("שגיאה");
     else { toast.success("המשתמש הושבת"); loadUsers(); }
+  };
+
+  const handleTestEmail = async () => {
+    if (!user?.email) return;
+    setTestEmailLoading(true);
+    try {
+      const res = await fetch("/api/send-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to: user.email,
+          subject: "בדיקת מייל — מערכת CRM",
+          html: `<div dir="rtl" style="font-family:Arial,sans-serif;padding:24px;"><h2 style="color:#16a34a;">מייל בדיקה</h2><p>המייל נשלח בהצלחה ממערכת ה-CRM!</p><p style="color:#64748b;font-size:13px;">נשלח אל: ${user.email}</p></div>`,
+        }),
+      });
+      const j = await res.json();
+      if (!res.ok) toast.error(j.error || "שגיאה בשליחה");
+      else toast.success(`מייל בדיקה נשלח ל-${user.email}`);
+    } catch { toast.error("שגיאה בשליחה"); }
+    finally { setTestEmailLoading(false); }
   };
 
   const handleSendInvite = async (u: UserType) => {
@@ -175,7 +196,7 @@ export default function SettingsPage() {
           </TabsContent>
 
           {/* General Tab */}
-          <TabsContent value="general">
+          <TabsContent value="general" className="space-y-4">
             <Card>
               <CardHeader><CardTitle>הגדרות כלליות</CardTitle></CardHeader>
               <CardContent className="space-y-4">
@@ -194,6 +215,18 @@ export default function SettingsPage() {
                 </div>
                 <Button onClick={handleSaveSettings} loading={savingSettings}>
                   <Save className="h-4 w-4" /> שמור
+                </Button>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader><CardTitle>בדיקת שליחת מייל</CardTitle></CardHeader>
+              <CardContent className="space-y-3">
+                <p className="text-sm text-[#64748b]">
+                  לחצי לשליחת מייל בדיקה לכתובת <span className="font-medium text-[#0f172a]">{user?.email}</span> — כך תוכלי לוודא שהמייל יוצא כהלכה.
+                </p>
+                <Button variant="outline" onClick={handleTestEmail} loading={testEmailLoading}>
+                  <Send className="h-4 w-4" /> שלח מייל בדיקה
                 </Button>
               </CardContent>
             </Card>

@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import {
   Send, MessageSquare, Search, Smile, Pencil, Trash2,
   Pin, Users, X, Check, Plus, Reply, SearchIcon, Mic,
-  StopCircle, Play, Pause, Settings, UserMinus, UserPlus,
+  StopCircle, Play, Pause, Settings, UserMinus, UserPlus, Film,
 } from "lucide-react";
 import Header from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
@@ -49,6 +49,13 @@ export default function ChatPage() {
 
   // UI modals
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [showGifPicker, setShowGifPicker]     = useState(false);
+  const [gifSearch, setGifSearch]             = useState("");
+  const [gifResults, setGifResults]           = useState<any[]>([]);
+  const [gifLoading, setGifLoading]           = useState(false);
+  const [gifTab, setGifTab]                   = useState<"search" | "saved">("search");
+  const [savedGifs, setSavedGifs]             = useState<string[]>([]);
+  const [savedGifsLoading, setSavedGifsLoading] = useState(false);
   const [showNewChat, setShowNewChat]         = useState(false);
   const [showNewGroup, setShowNewGroup]       = useState(false);
   const [showGroupSettings, setShowGroupSettings] = useState(false);
@@ -72,6 +79,9 @@ export default function ChatPage() {
   const recordTimerRef   = useRef<any>(null);
   const audioRefs        = useRef<Record<string, HTMLAudioElement>>({});
 
+  // Read receipts: { messageId: [userId, ...] }
+  const [readReceipts, setReadReceipts] = useState<Record<string, string[]>>({});
+
   // Typing
   const [typingUsers, setTypingUsers]     = useState<string[]>([]);
   const typingTimeoutRef  = useRef<any>(null);
@@ -80,6 +90,7 @@ export default function ChatPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef    = useRef<HTMLTextAreaElement>(null);
   const msgSearchRef   = useRef<HTMLInputElement>(null);
+  const gifFileRef     = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (user) { loadConversations(); loadUsers(); }
@@ -95,7 +106,7 @@ export default function ChatPage() {
   }, [messages]);
 
   useEffect(() => {
-    const handler = () => { setShowReactionFor(null); setShowEmojiPicker(false); };
+    const handler = () => { setShowReactionFor(null); setShowEmojiPicker(false); setShowGifPicker(false); };
     document.addEventListener("click", handler);
     return () => document.removeEventListener("click", handler);
   }, []);
@@ -145,6 +156,16 @@ export default function ChatPage() {
         (payload) => setMessages(prev => prev.filter(m => m.id !== payload.old.id)))
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "chat_reactions" }, loadReactions)
       .on("postgres_changes", { event: "DELETE", schema: "public", table: "chat_reactions" }, loadReactions)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "chat_message_reads" },
+        (payload) => {
+          setReadReceipts(prev => {
+            const mid = payload.new.message_id;
+            const uid = payload.new.user_id;
+            const existing = prev[mid] || [];
+            if (existing.includes(uid)) return prev;
+            return { ...prev, [mid]: [...existing, uid] };
+          });
+        })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [activeConv?.id]);
@@ -174,11 +195,31 @@ export default function ChatPage() {
 
   const loadConversations = async () => {
     if (!user) return;
-    const { data } = await supabase
-      .from("chat_conversations")
-      .select("*, participants:chat_participants(user:users(id, full_name, avatar_url))")
-      .order("updated_at", { ascending: false });
-    setConversations(data || []);
+
+    if (user.role === "admin") {
+      // Admin sees all conversations
+      const { data } = await supabase
+        .from("chat_conversations")
+        .select("*, participants:chat_participants(user:users(id, full_name, avatar_url))")
+        .order("updated_at", { ascending: false });
+      setConversations(data || []);
+    } else {
+      // Employee sees only conversations they participate in
+      const { data: myConvs } = await supabase
+        .from("chat_participants")
+        .select("conversation_id")
+        .eq("user_id", user.id);
+
+      const ids = (myConvs || []).map(r => r.conversation_id);
+      if (ids.length === 0) { setConversations([]); return; }
+
+      const { data } = await supabase
+        .from("chat_conversations")
+        .select("*, participants:chat_participants(user:users(id, full_name, avatar_url))")
+        .in("id", ids)
+        .order("updated_at", { ascending: false });
+      setConversations(data || []);
+    }
   };
 
   const loadMessages = async (convId: string) => {
@@ -192,6 +233,25 @@ export default function ChatPage() {
     (data || []).forEach((m: any) => { if (m.is_pinned) pinned.add(m.id); });
     setPinnedMessages(pinned);
     const edited = new Set<string>();
+    // Mark messages as read + load read receipts
+    if (data?.length && user) {
+      fetch("/api/chat-reads", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ conversation_id: convId, user_id: user.id }),
+      }).catch(() => {});
+      const ids = data.map((m: any) => m.id).join(",");
+      fetch(`/api/chat-reads?ids=${ids}`)
+        .then(r => r.json())
+        .then(j => {
+          const map: Record<string, string[]> = {};
+          (j.data || []).forEach((r: any) => {
+            if (!map[r.message_id]) map[r.message_id] = [];
+            map[r.message_id].push(r.user_id);
+          });
+          setReadReceipts(map);
+        }).catch(() => {});
+    }
     (data || []).forEach((m: any) => { if (m.is_edited) edited.add(m.id); });
     setEditedIds(edited);
     // Load reactions for these messages
@@ -212,6 +272,68 @@ export default function ChatPage() {
   const loadUsers = async () => {
     const { data } = await supabase.from("users").select("*").neq("id", user?.id).eq("status", "active");
     setUsers((data || []) as User[]);
+  };
+
+  const loadSavedGifs = async () => {
+    if (!user) return;
+    setSavedGifsLoading(true);
+    const { data } = await supabase.storage
+      .from("attachments")
+      .list(`gifs/${user.id}`, { limit: 50, sortBy: { column: "name", order: "desc" } });
+    const urls = (data || [])
+      .filter(f => f.name && !f.name.startsWith("."))
+      .map(f => supabase.storage.from("attachments").getPublicUrl(`gifs/${user.id}/${f.name}`).data.publicUrl);
+    setSavedGifs(urls);
+    setSavedGifsLoading(false);
+  };
+
+  const searchGifs = async (q: string) => {
+    if (!q.trim()) { setGifResults([]); return; }
+    setGifLoading(true);
+    try {
+      const res = await fetch(`https://tenor.googleapis.com/v2/search?q=${encodeURIComponent(q)}&key=LIVDSRZULELA&limit=16&media_filter=gif`);
+      const json = await res.json();
+      setGifResults(json.results || []);
+    } catch { setGifResults([]); }
+    finally { setGifLoading(false); }
+  };
+
+  const handleSendGif = async (gifUrl: string) => {
+    if (!activeConv || !user) return;
+    setShowGifPicker(false);
+    setGifSearch("");
+    setGifResults([]);
+    const res = await fetch("/api/chat-messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ conversation_id: activeConv.id, sender_id: user.id, content: gifUrl, message_type: "gif" }),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || "שגיאה בשליחת GIF");
+    if (json.id) setMessages(prev => prev.some(m => m.id === json.id) ? prev : [...prev, json]);
+  };
+
+  const handleGifFileUpload = async (file: File) => {
+    if (!activeConv || !user) return;
+    if (file.size > 10 * 1024 * 1024) { toast.error("הקובץ גדול מדי (מקסימום 10MB)"); return; }
+    const toastId = toast.loading("מעלה GIF...");
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("bucket", "attachments");
+      form.append("path", `gifs/${user.id}/${Date.now()}_${file.name.replace(/[^\w.\-]/g, "_")}`);
+
+      const res = await fetch("/api/upload", { method: "POST", body: form });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "שגיאה בהעלאה");
+
+      setSavedGifs(prev => [json.url, ...prev]);
+      await handleSendGif(json.url);
+      toast.success("GIF נשלח ונשמר! 🎉", { id: toastId });
+    } catch (err: any) {
+      toast.error(`שגיאה: ${err.message}`, { id: toastId });
+    }
+    if (gifFileRef.current) gifFileRef.current.value = "";
   };
 
   // ─── Send text ───────────────────────────────────────────────
@@ -282,7 +404,7 @@ export default function ChatPage() {
     const blob = new Blob(audioChunksRef.current, { type: mimeUsed });
     const path = `voice/${activeConv.id}/${Date.now()}.${ext}`;
     const { error: uploadErr } = await supabase.storage.from("attachments").upload(path, blob);
-    if (uploadErr) { toast.error("שגיאה בשליחת ההקלטה"); return; }
+    if (uploadErr) { toast.error(`שגיאה בהעלאה: ${uploadErr.message}`); return; }
     const { data: { publicUrl } } = supabase.storage.from("attachments").getPublicUrl(path);
     const replyToId = replyTo?.id || null;
     setReplyTo(null);
@@ -350,20 +472,33 @@ export default function ChatPage() {
     toast.success(isPinned ? "הצמדה הוסרה" : "הודעה הוצמדה ✓");
   };
 
-  // ─── Emoji reactions (persisted to DB) ───────────────────────
+  // ─── Emoji reactions (via API — bypasses RLS) ────────────────
   const handleReaction = async (msgId: string, emoji: string) => {
     if (!user) return;
+    setShowReactionFor(null);
     const existing = rawReactions.find(r => r.message_id === msgId && r.user_id === user.id && r.emoji === emoji);
     if (existing) {
-      await supabase.from("chat_reactions").delete().eq("id", existing.id);
+      // Optimistic remove
       setRawReactions(prev => prev.filter(r => r.id !== existing.id));
+      const res = await fetch(`/api/chat-reactions?id=${existing.id}`, { method: "DELETE" });
+      if (!res.ok) { setRawReactions(prev => [...prev, existing]); toast.error("שגיאה בהסרת תגובה"); }
     } else {
-      const { data } = await supabase.from("chat_reactions").insert({
-        message_id: msgId, user_id: user.id, emoji,
-      }).select().single();
-      if (data) setRawReactions(prev => [...prev, data]);
+      // Optimistic add
+      const tempId = `temp-${Date.now()}`;
+      setRawReactions(prev => [...prev, { id: tempId, message_id: msgId, user_id: user.id, emoji }]);
+      const res = await fetch("/api/chat-reactions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message_id: msgId, user_id: user.id, emoji }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setRawReactions(prev => prev.filter(r => r.id !== tempId));
+        toast.error(`שגיאה בתגובה: ${json.error}`);
+      } else if (json.id) {
+        setRawReactions(prev => prev.map(r => r.id === tempId ? json : r));
+      }
     }
-    setShowReactionFor(null);
   };
 
   // ─── Conversations ────────────────────────────────────────────
@@ -465,25 +600,25 @@ export default function ChatPage() {
       <div className="flex flex-1 overflow-hidden">
 
         {/* ── Sidebar ── */}
-        <div className="w-72 border-l border-[#e2e8f0] bg-white flex flex-col shrink-0">
-          <div className="p-3 border-b border-[#f1f5f9] space-y-2">
+        <div className="w-72 border-l border-[#e2e8f0] bg-[#fafbfc] flex flex-col shrink-0">
+          <div className="p-3 border-b border-[#f1f5f9] space-y-2 bg-white">
             <div className="relative">
               <Search className="absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-[#94a3b8]" />
-              <Input placeholder="חיפוש שיחה..." value={convSearch} onChange={e => setConvSearch(e.target.value)} className="pr-9 h-8" />
+              <Input placeholder="חיפוש שיחה..." value={convSearch} onChange={e => setConvSearch(e.target.value)} className="pr-9 h-8 bg-[#f8fafc]" />
             </div>
             <div className="flex gap-2">
               <button onClick={() => setShowNewChat(true)}
-                className="flex-1 flex items-center justify-center gap-1 text-xs border border-[#e2e8f0] rounded-lg py-1.5 hover:bg-[#f8fafc] text-[#374151]">
-                <Plus className="h-3 w-3" /> שיחה חדשה
+                className="flex-1 flex items-center justify-center gap-1.5 text-xs bg-[#16a34a] text-white rounded-lg py-1.5 hover:bg-[#15803d] font-medium transition-colors">
+                <Plus className="h-3.5 w-3.5" /> שיחה חדשה
               </button>
               <button onClick={() => setShowNewGroup(true)}
-                className="flex-1 flex items-center justify-center gap-1 text-xs border border-[#e2e8f0] rounded-lg py-1.5 hover:bg-[#f8fafc] text-[#374151]">
-                <Users className="h-3 w-3" /> קבוצה
+                className="flex-1 flex items-center justify-center gap-1.5 text-xs border border-[#e2e8f0] bg-white rounded-lg py-1.5 hover:bg-[#f1f5f9] text-[#374151] font-medium transition-colors">
+                <Users className="h-3.5 w-3.5" /> קבוצה
               </button>
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto">
+          <div className="flex-1 overflow-y-auto py-1">
             {filteredConvs.length === 0 ? (
               <div className="text-center py-10 text-[#94a3b8]">
                 <MessageSquare className="h-10 w-10 mx-auto mb-2 opacity-20" />
@@ -491,14 +626,19 @@ export default function ChatPage() {
               </div>
             ) : filteredConvs.map(conv => (
               <button key={conv.id} onClick={() => { setActiveConv(conv); setReplyTo(null); setMsgSearch(""); setShowMsgSearch(false); setShowGroupSettings(false); }}
-                className={cn("flex items-center gap-3 w-full p-3 hover:bg-[#f8fafc] border-b border-[#f8fafc] text-right", activeConv?.id === conv.id && "bg-[#f0fdf4]")}>
-                <div className={cn("w-10 h-10 rounded-full flex items-center justify-center text-white font-bold shrink-0 text-sm",
-                  conv.type === "group" ? "bg-blue-500" : "bg-[#16a34a]")}>
+                className={cn(
+                  "flex items-center gap-3 w-full px-3 py-2.5 text-right transition-colors relative border-r-2",
+                  activeConv?.id === conv.id
+                    ? "bg-[#f0fdf4] border-[#16a34a]"
+                    : "hover:bg-white border-transparent"
+                )}>
+                <div className={cn("w-10 h-10 rounded-full flex items-center justify-center text-white font-bold shrink-0 text-sm shadow-sm",
+                  conv.type === "group" ? "bg-gradient-to-br from-blue-400 to-blue-600" : "bg-gradient-to-br from-[#16a34a] to-[#15803d]")}>
                   {conv.type === "group" ? <Users className="h-5 w-5" /> : getConvName(conv).charAt(0)}
                 </div>
                 <div className="flex-1 min-w-0 text-right">
-                  <p className="font-medium text-sm text-[#0f172a] truncate">{getConvName(conv)}</p>
-                  <p className="text-xs text-[#94a3b8]">
+                  <p className={cn("font-semibold text-sm truncate", activeConv?.id === conv.id ? "text-[#0f172a]" : "text-[#374151]")}>{getConvName(conv)}</p>
+                  <p className="text-xs text-[#94a3b8] truncate">
                     {conv.type === "group" ? `קבוצה · ${conv.participants?.length ?? 0} משתתפים` : "שיחה פרטית"}
                   </p>
                 </div>
@@ -509,7 +649,7 @@ export default function ChatPage() {
 
         {/* ── Chat Area ── */}
         <div className="flex-1 flex overflow-hidden">
-          <div className="flex-1 flex flex-col bg-[#f8fafc] min-w-0">
+          <div className="flex-1 flex flex-col bg-[#f0f4f8] min-w-0">
             {activeConv ? (
               <>
                 {/* Header */}
@@ -567,7 +707,7 @@ export default function ChatPage() {
                 )}
 
                 {/* Messages */}
-                <div className="flex-1 overflow-y-auto p-4 space-y-0.5">
+                <div className="flex-1 overflow-y-auto p-4 space-y-0.5 chat-bg">
                   {displayMessages.map((msg, idx) => {
                     const isOwn    = msg.sender_id === user?.id;
                     const isPinned = pinnedMessages.has(msg.id);
@@ -596,48 +736,50 @@ export default function ChatPage() {
                         <div className={cn("max-w-[70%] flex flex-col", isOwn ? "items-end" : "items-start", sameGroup && "mt-0.5")}>
                           {showName && <p className="text-xs text-[#94a3b8] mb-0.5 px-1">{msg.sender?.full_name}</p>}
 
-                          <div className="relative">
-                            {/* Hover actions */}
-                            <div className={cn(
-                              "absolute top-0 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity z-10 bg-white rounded-full shadow-md border border-[#e2e8f0] px-1 py-0.5",
-                              isOwn ? "-left-2 -translate-x-full" : "-right-2 translate-x-full"
-                            )}>
-                              <button onClick={e => { e.stopPropagation(); setShowReactionFor(showReactionFor === msg.id ? null : msg.id); }}
-                                className="p-1 rounded-full hover:bg-[#f1f5f9] text-[#64748b]" title="תגובה">😊</button>
-                              <button onClick={() => { setReplyTo(msg); textareaRef.current?.focus(); }}
-                                className="p-1 rounded-full hover:bg-[#f1f5f9] text-[#64748b]" title="ענה">
-                                <Reply className="h-3.5 w-3.5" />
+                          {/* ── Inline action bar (no absolute = no off-screen clipping) ── */}
+                          <div className={cn(
+                            "flex items-center gap-0.5 mb-0.5 opacity-0 group-hover:opacity-100 transition-opacity",
+                            "bg-white rounded-full shadow-sm border border-[#e2e8f0] px-1 py-0.5",
+                            isOwn ? "self-end" : "self-start"
+                          )}>
+                            <button onClick={e => { e.nativeEvent.stopImmediatePropagation(); setShowReactionFor(showReactionFor === msg.id ? null : msg.id); }}
+                              className="p-1 rounded-full hover:bg-[#f1f5f9] text-[#64748b] text-sm" title="תגובה">😊</button>
+                            <button onClick={() => { setReplyTo(msg); textareaRef.current?.focus(); }}
+                              className="p-1 rounded-full hover:bg-[#f1f5f9] text-[#64748b]" title="ענה">
+                              <Reply className="h-3.5 w-3.5" />
+                            </button>
+                            <button onClick={() => handlePin(msg.id)}
+                              className={cn("p-1 rounded-full hover:bg-[#f1f5f9]", isPinned ? "text-amber-500" : "text-[#64748b]")} title={isPinned ? "הסר הצמדה" : "הצמד"}>
+                              <Pin className="h-3.5 w-3.5" />
+                            </button>
+                            {isOwn && !isVoice && (
+                              <button onClick={() => { setEditingId(msg.id); setEditContent(msg.content); }}
+                                className="p-1 rounded-full hover:bg-[#f1f5f9] text-[#64748b]" title="ערוך">
+                                <Pencil className="h-3.5 w-3.5" />
                               </button>
-                              <button onClick={() => handlePin(msg.id)}
-                                className={cn("p-1 rounded-full hover:bg-[#f1f5f9]", isPinned ? "text-amber-500" : "text-[#64748b]")} title={isPinned ? "הסר הצמדה" : "הצמד"}>
-                                <Pin className="h-3.5 w-3.5" />
-                              </button>
-                              {isOwn && !isVoice && (
-                                <button onClick={() => { setEditingId(msg.id); setEditContent(msg.content); }}
-                                  className="p-1 rounded-full hover:bg-[#f1f5f9] text-[#64748b]" title="ערוך">
-                                  <Pencil className="h-3.5 w-3.5" />
-                                </button>
-                              )}
-                              {isOwn && (
-                                <button onClick={() => handleDelete(msg.id)}
-                                  className="p-1 rounded-full hover:bg-red-50 text-red-400" title="מחק">
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                </button>
-                              )}
-                            </div>
-
-                            {/* Emoji picker */}
-                            {showReactionFor === msg.id && (
-                              <div onClick={e => e.stopPropagation()}
-                                className={cn("absolute z-20 bottom-full mb-2 bg-white rounded-2xl shadow-xl border border-[#e2e8f0] p-2", isOwn ? "right-0" : "left-0")}>
-                                <div className="flex gap-1">
-                                  {QUICK_EMOJIS.map(e => (
-                                    <button key={e} onClick={() => handleReaction(msg.id, e)}
-                                      className="text-xl hover:scale-125 transition-transform p-0.5">{e}</button>
-                                  ))}
-                                </div>
-                              </div>
                             )}
+                            {isOwn && (
+                              <button onClick={() => handleDelete(msg.id)}
+                                className="p-1 rounded-full hover:bg-red-50 text-red-400" title="מחק">
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                          </div>
+
+                          {/* ── Inline emoji reaction picker ── */}
+                          {showReactionFor === msg.id && (
+                            <div className={cn(
+                              "flex gap-1 mb-1 p-1.5 bg-white rounded-2xl shadow-md border border-[#e2e8f0] flex-wrap",
+                              isOwn ? "self-end" : "self-start"
+                            )} onClick={e => e.nativeEvent.stopImmediatePropagation()}>
+                              {QUICK_EMOJIS.map(em => (
+                                <button key={em} onClick={e => { e.nativeEvent.stopImmediatePropagation(); handleReaction(msg.id, em); }}
+                                  className="text-xl hover:scale-125 transition-transform p-0.5">{em}</button>
+                              ))}
+                            </div>
+                          )}
+
+                          <div>
 
                             {/* Edit mode */}
                             {isEditing ? (
@@ -673,8 +815,10 @@ export default function ChatPage() {
                                   </div>
                                 )}
 
-                                {/* Voice message */}
-                                {isVoice ? (
+                                {/* GIF / image — detected by __IMG__ prefix */}
+                                {msg.content?.startsWith("__IMG__") ? (
+                                  <img src={msg.content.slice(7)} alt="GIF" className="rounded-xl max-w-[240px] max-h-[200px] object-contain" loading="lazy" />
+                                ) : /* Voice message */ isVoice ? (
                                   <div className="flex items-center gap-2 min-w-[160px]">
                                     <button onClick={() => togglePlay(msg.id, msg.content)}
                                       className={cn("w-8 h-8 rounded-full flex items-center justify-center shrink-0",
@@ -698,7 +842,7 @@ export default function ChatPage() {
                                   </div>
                                 ) : (
                                   <span className="whitespace-pre-wrap break-words">{msg.content}</span>
-                                )}
+                                ) /* end gif/voice/text */}
 
                                 {isEdited && !isVoice && (
                                   <span className={cn("text-xs opacity-60", isOwn ? "text-white" : "text-[#94a3b8]")}> (ערוך)</span>
@@ -722,7 +866,17 @@ export default function ChatPage() {
                             </div>
                           )}
 
-                          <p className="text-xs text-[#94a3b8] mt-0.5 px-1">{formatTime(msg.created_at)}</p>
+                          <div className={cn("flex items-center gap-1 mt-0.5 px-1", isOwn ? "justify-end" : "justify-start")}>
+                            <p className="text-xs text-[#94a3b8]">{formatTime(msg.created_at)}</p>
+                            {isOwn && (() => {
+                              const otherMembers = getConvMembers(activeConv).filter(m => m.id !== user?.id);
+                              const readers = readReceipts[msg.id] || [];
+                              const allRead = otherMembers.length > 0 && otherMembers.every(m => readers.includes(m.id));
+                              return allRead
+                                ? <span className="text-[10px] font-bold text-blue-400" title="נקרא">✓✓</span>
+                                : <span className="text-[10px] text-[#94a3b8]" title="נשלח">✓</span>;
+                            })()}
+                          </div>
                         </div>
                       </div>
                     );
@@ -742,7 +896,7 @@ export default function ChatPage() {
                 </div>
 
                 {/* Input */}
-                <div className="bg-white border-t border-[#e2e8f0] p-3 shrink-0" onClick={e => e.stopPropagation()}>
+                <div className="bg-white border-t border-[#e2e8f0] p-3 shrink-0" onClick={e => e.nativeEvent.stopImmediatePropagation()}>
                   {replyTo && (
                     <div className="flex items-center gap-2 mb-2 p-2 bg-[#f0fdf4] rounded-xl border border-[#bbf7d0]">
                       <Reply className="h-4 w-4 text-[#16a34a] shrink-0" />
@@ -757,13 +911,98 @@ export default function ChatPage() {
                   )}
 
                   {showEmojiPicker && (
-                    <div className="mb-2 p-2.5 bg-[#f8fafc] rounded-xl border border-[#e2e8f0]">
+                    <div className="mb-2 p-2.5 bg-[#f8fafc] rounded-xl border border-[#e2e8f0] max-h-40 overflow-y-auto">
                       <div className="flex flex-wrap gap-1">
-                        {ALL_EMOJIS.map(e => (
-                          <button key={e} onClick={() => { setNewMessage(prev => prev + e); setShowEmojiPicker(false); textareaRef.current?.focus(); }}
-                            className="text-xl hover:scale-125 transition-transform p-0.5">{e}</button>
+                        {ALL_EMOJIS.map(em => (
+                          <button key={em} onClick={e => { e.nativeEvent.stopImmediatePropagation(); setNewMessage(prev => prev + em); setShowEmojiPicker(false); textareaRef.current?.focus(); }}
+                            className="text-xl hover:scale-125 transition-transform p-0.5">{em}</button>
                         ))}
                       </div>
+                    </div>
+                  )}
+
+                  {showGifPicker && (
+                    <div className="mb-2 bg-white rounded-xl border border-[#e2e8f0] shadow-lg overflow-hidden" onClick={e => e.nativeEvent.stopImmediatePropagation()}>
+                      {/* Tabs */}
+                      <div className="flex items-center border-b border-[#f1f5f9]">
+                        <button onClick={() => setGifTab("search")}
+                          className={cn("flex-1 text-xs py-2.5 font-semibold transition-colors border-b-2",
+                            gifTab === "search" ? "text-[#16a34a] border-[#16a34a]" : "text-[#94a3b8] border-transparent hover:text-[#374151]")}>
+                          חיפוש
+                        </button>
+                        <button onClick={() => { setGifTab("saved"); loadSavedGifs(); }}
+                          className={cn("flex-1 text-xs py-2.5 font-semibold transition-colors border-b-2",
+                            gifTab === "saved" ? "text-[#16a34a] border-[#16a34a]" : "text-[#94a3b8] border-transparent hover:text-[#374151]")}>
+                          שמורים {savedGifs.length > 0 && `(${savedGifs.length})`}
+                        </button>
+                        <button onClick={() => { setShowGifPicker(false); setGifSearch(""); setGifResults([]); }}
+                          className="px-2.5 text-[#94a3b8] hover:text-[#374151]">
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
+
+                      {/* Search tab */}
+                      {gifTab === "search" && (
+                        <>
+                          <div className="p-2 border-b border-[#f1f5f9] flex gap-2 items-center">
+                            <input
+                              className="flex-1 text-sm px-3 py-1.5 rounded-lg border border-[#e2e8f0] focus:outline-none focus:border-[#16a34a]"
+                              placeholder="חפש GIF... (לדוגמה: funny, hello, yes)"
+                              value={gifSearch}
+                              onChange={e => { setGifSearch(e.target.value); searchGifs(e.target.value); }}
+                              dir="ltr" autoFocus
+                            />
+                          </div>
+                          <div className="p-2 max-h-48 overflow-y-auto">
+                            {gifLoading ? (
+                              <p className="text-center text-sm text-[#94a3b8] py-4">טוען...</p>
+                            ) : gifResults.length === 0 ? (
+                              <p className="text-center text-sm text-[#94a3b8] py-4">{gifSearch ? "לא נמצאו תוצאות" : "הקלד לחיפוש GIF"}</p>
+                            ) : (
+                              <div className="grid grid-cols-4 gap-1.5">
+                                {gifResults.map((g: any) => {
+                                  const url = g.media_formats?.gif?.url || g.media_formats?.tinygif?.url;
+                                  if (!url) return null;
+                                  return (
+                                    <button key={g.id} onClick={() => handleSendGif(url).catch(e => toast.error(e.message))}
+                                      className="rounded-lg overflow-hidden hover:ring-2 hover:ring-[#16a34a] transition-all aspect-square bg-[#f1f5f9]">
+                                      <img src={g.media_formats?.tinygif?.url || url} alt={g.title} className="w-full h-full object-cover" loading="lazy" />
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        </>
+                      )}
+
+                      {/* Saved tab */}
+                      {gifTab === "saved" && (
+                        <div className="p-2 max-h-56 overflow-y-auto">
+                          <div className="mb-2">
+                            <button onClick={() => gifFileRef.current?.click()}
+                              className="w-full py-2 text-xs rounded-lg border border-dashed border-[#16a34a] text-[#16a34a] hover:bg-[#f0fdf4] font-medium transition-colors">
+                              + העלה GIF חדש מהמחשב
+                            </button>
+                            <input ref={gifFileRef} type="file" accept="image/gif,.gif" className="hidden"
+                              onChange={e => { const f = e.target.files?.[0]; if (f) handleGifFileUpload(f); }} />
+                          </div>
+                          {savedGifsLoading ? (
+                            <p className="text-center text-sm text-[#94a3b8] py-4">טוען...</p>
+                          ) : savedGifs.length === 0 ? (
+                            <p className="text-center text-sm text-[#94a3b8] py-4">אין GIF שמורים — העלה את הראשון!</p>
+                          ) : (
+                            <div className="grid grid-cols-4 gap-1.5">
+                              {savedGifs.map((url, i) => (
+                                <button key={i} onClick={() => handleSendGif(url).catch(e => toast.error(e.message))}
+                                  className="rounded-lg overflow-hidden hover:ring-2 hover:ring-[#16a34a] transition-all aspect-square bg-[#f1f5f9]">
+                                  <img src={url} alt="GIF שמור" className="w-full h-full object-cover" loading="lazy" />
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -791,10 +1030,15 @@ export default function ChatPage() {
                     </div>
                   ) : (
                     <div className="flex gap-2 items-end">
-                      <button onClick={e => { e.stopPropagation(); setShowEmojiPicker(v => !v); }}
+                      <button onClick={e => { e.nativeEvent.stopImmediatePropagation(); setShowEmojiPicker(v => !v); setShowGifPicker(false); }}
                         className={cn("p-2 rounded-lg transition-colors shrink-0",
                           showEmojiPicker ? "bg-[#16a34a] text-white" : "text-[#94a3b8] hover:text-[#374151] hover:bg-[#f1f5f9]")} title="אימוג'י">
                         😊
+                      </button>
+                      <button onClick={e => { e.nativeEvent.stopImmediatePropagation(); setShowGifPicker(v => !v); setShowEmojiPicker(false); }}
+                        className={cn("p-2 rounded-lg transition-colors shrink-0 text-xs font-bold",
+                          showGifPicker ? "bg-[#16a34a] text-white" : "text-[#94a3b8] hover:text-[#374151] hover:bg-[#f1f5f9]")} title="GIF">
+                        GIF
                       </button>
                       <textarea
                         ref={textareaRef}
@@ -823,11 +1067,13 @@ export default function ChatPage() {
                 </div>
               </>
             ) : (
-              <div className="flex-1 flex items-center justify-center text-[#94a3b8]">
+              <div className="flex-1 flex items-center justify-center">
                 <div className="text-center">
-                  <MessageSquare className="h-16 w-16 mx-auto mb-4 opacity-20" />
-                  <p className="text-lg font-medium">בחר שיחה להתחלה</p>
-                  <p className="text-sm mt-1">או פתח שיחה/קבוצה חדשה</p>
+                  <div className="w-20 h-20 bg-white rounded-2xl shadow-md flex items-center justify-center mx-auto mb-4 border border-[#e2e8f0]">
+                    <MessageSquare className="h-10 w-10 text-[#16a34a] opacity-60" />
+                  </div>
+                  <p className="text-lg font-semibold text-[#374151]">בחר שיחה להתחלה</p>
+                  <p className="text-sm text-[#94a3b8] mt-1">או פתח שיחה חדשה מהתפריט הצד</p>
                 </div>
               </div>
             )}

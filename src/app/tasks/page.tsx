@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Plus, Search, Filter, List, Columns, CheckSquare, AlertTriangle, Check, X } from "lucide-react";
+import { Plus, Search, List, Columns, CheckSquare, AlertTriangle, Check, X, Archive, ChevronRight } from "lucide-react";
 import Header from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,27 +31,59 @@ export default function TasksPage() {
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterPriority, setFilterPriority] = useState("all");
   const [filterClient, setFilterClient] = useState("all");
+  // "me" = show only own tasks (default for everyone), "all" = all tasks (admin only), or specific user id
+  const [filterEmployee, setFilterEmployee] = useState("me");
+  const [showArchive, setShowArchive] = useState(false);
+  const [archivedCount, setArchivedCount] = useState(0);
 
   useEffect(() => {
     loadData();
-  }, [user, filterStatus, filterPriority, filterClient]);
+  }, [user, filterStatus, filterPriority, filterClient, filterEmployee, showArchive]);
 
   const loadData = async () => {
     setLoading(true);
     try {
       const params = new URLSearchParams();
-      if (user?.role === "employee") { params.set("role", "employee"); params.set("user_id", user.id); }
-      if (filterStatus !== "all")   params.set("status", filterStatus);
+
+      if (user?.role === "employee") {
+        // Employees always see only their own tasks
+        params.set("role", "employee");
+        params.set("user_id", user.id);
+      } else if (user?.role === "admin") {
+        if (filterEmployee === "me") {
+          params.set("role", "admin");
+          params.set("user_id", user.id);
+        } else if (filterEmployee !== "all") {
+          params.set("role", "employee");
+          params.set("user_id", filterEmployee);
+        }
+        // "all" → no user_id filter → returns everything
+      }
+
+      if (showArchive) {
+        params.set("status", "completed");
+      } else if (filterStatus !== "all") {
+        params.set("status", filterStatus);
+      } else {
+        params.set("exclude_completed", "true");
+      }
       if (filterPriority !== "all") params.set("priority", filterPriority);
       if (filterClient !== "all")   params.set("customer_id", filterClient);
 
-      const [tasksRes, clientsRes, usersRes] = await Promise.all([
+      // Count archived (completed) tasks for the badge
+      const archiveParams = new URLSearchParams(params);
+      archiveParams.set("status", "completed");
+      archiveParams.delete("exclude_completed");
+
+      const [tasksRes, clientsRes, usersRes, archiveRes] = await Promise.all([
         fetch(`/api/tasks?${params}`).then(r => r.json()),
         supabase.from("customers").select("id, company_name").eq("status", "active"),
-        supabase.from("users").select("id, full_name").eq("role", "employee").eq("status", "active"),
+        supabase.from("users").select("id, full_name").in("role", ["admin","employee"]).eq("status", "active"),
+        fetch(`/api/tasks?${archiveParams}`).then(r => r.json()),
       ]);
 
       if (tasksRes.error) throw new Error(tasksRes.error);
+      setArchivedCount((archiveRes.data || []).length);
 
       const tasksWithProgress = (tasksRes.data || []).map((task: any) => ({
         ...task,
@@ -123,16 +155,33 @@ export default function TasksPage() {
         {/* Stats */}
         <div className="grid grid-cols-4 gap-3">
           {[
-            { label: "כל המשימות", value: stats.all, color: "text-[#0f172a]" },
-            { label: "פתוחות", value: stats.open, color: "text-blue-600" },
-            { label: "באיחור", value: stats.overdue, color: "text-red-600" },
-            { label: "הושלמו", value: stats.completed, color: "text-green-600" },
+            { label: "כל המשימות", value: stats.all,     color: "text-[#0f172a]", bg: "bg-white",        border: "border-[#e2e8f0]", dot: "bg-[#94a3b8]" },
+            { label: "פתוחות",      value: stats.open,    color: "text-blue-600",  bg: "bg-blue-50/60",   border: "border-blue-100",  dot: "bg-blue-400" },
+            { label: "באיחור",      value: stats.overdue, color: "text-red-500",   bg: "bg-red-50/60",    border: "border-red-100",   dot: "bg-red-400" },
           ].map(s => (
-            <div key={s.label} className="bg-white rounded-xl border border-[#e2e8f0] p-3 text-center">
-              <p className={`text-xl font-bold ${s.color}`}>{s.value}</p>
-              <p className="text-xs text-[#64748b]">{s.label}</p>
+            <div key={s.label} className={`${s.bg} rounded-xl border ${s.border} p-4 flex items-center gap-3`}>
+              <div className={`w-2.5 h-2.5 rounded-full ${s.dot} shrink-0`} />
+              <div>
+                <p className={`text-2xl font-bold leading-none ${s.color}`}>{s.value}</p>
+                <p className="text-xs text-[#64748b] mt-0.5">{s.label}</p>
+              </div>
             </div>
           ))}
+          {/* Archive card */}
+          <button
+            onClick={() => setShowArchive(v => !v)}
+            className={`rounded-xl border p-4 flex items-center gap-3 transition-all text-right w-full ${
+              showArchive
+                ? "bg-green-100 border-green-300"
+                : "bg-green-50/60 border-green-100 hover:bg-green-100"
+            }`}
+          >
+            <Archive className={`w-4 h-4 shrink-0 ${showArchive ? "text-green-700" : "text-green-400"}`} />
+            <div>
+              <p className={`text-2xl font-bold leading-none ${showArchive ? "text-green-700" : "text-green-600"}`}>{archivedCount}</p>
+              <p className="text-xs text-[#64748b] mt-0.5">ארכיון</p>
+            </div>
+          </button>
         </div>
 
         {/* Pending deletion approval — admin only */}
@@ -204,6 +253,18 @@ export default function TasksPage() {
             </SelectContent>
           </Select>
 
+          {/* Admin-only: filter by assignee */}
+          {user?.role === "admin" && (
+            <Select value={filterEmployee} onValueChange={setFilterEmployee}>
+              <SelectTrigger className="w-44"><SelectValue placeholder="הצג משימות של" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="me">המשימות שלי</SelectItem>
+                <SelectItem value="all">כולם</SelectItem>
+                {employees.map(e => <SelectItem key={e.id} value={e.id}>{e.full_name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          )}
+
           <div className="flex items-center border border-[#e2e8f0] rounded-lg overflow-hidden bg-white">
             <button
               onClick={() => setViewMode("list")}
@@ -224,10 +285,21 @@ export default function TasksPage() {
           </Button>
         </div>
 
+        {/* Archive banner */}
+        {showArchive && (
+          <div className="flex items-center gap-2 bg-green-50 border border-green-100 rounded-xl px-4 py-2.5">
+            <Archive className="h-4 w-4 text-green-600 shrink-0" />
+            <span className="text-sm font-medium text-green-700">ארכיון — משימות שהושלמו</span>
+            <button onClick={() => setShowArchive(false)} className="mr-auto text-xs text-green-600 hover:text-green-800 flex items-center gap-1">
+              <X className="h-3.5 w-3.5" /> סגור ארכיון
+            </button>
+          </div>
+        )}
+
         {/* Content */}
         {loading ? (
           <div className="space-y-3">
-            {[1, 2, 3].map(i => <div key={i} className="h-20 bg-gray-100 rounded-xl animate-pulse" />)}
+            {[1, 2, 3].map(i => <div key={i} className="skeleton h-20 rounded-xl" />)}
           </div>
         ) : filteredTasks.length === 0 ? (
           <div className="text-center py-16 text-[#94a3b8]">

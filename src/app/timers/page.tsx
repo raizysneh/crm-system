@@ -215,7 +215,7 @@ export default function TimersPage() {
 
         {/* Day-grouped entries */}
         {loading ? (
-          <div className="space-y-4">{[1,2,3].map(i=><div key={i} className="bg-white rounded-xl h-28 animate-pulse" />)}</div>
+          <div className="space-y-4">{[1,2,3].map(i=><div key={i} className="skeleton rounded-xl h-28" />)}</div>
         ) : groups.length===0 ? (
           <div className="text-center py-20 text-[#94a3b8]">
             <Clock className="h-16 w-16 mx-auto mb-4 opacity-20" />

@@ -1,17 +1,19 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
-  ChevronRight, ChevronLeft, Plus, CheckSquare, Users,
+  ChevronRight, ChevronLeft, ChevronDown, MoreVertical, Plus, CheckSquare, Users,
   Clock, MapPin, Link as LinkIcon, Pencil, Trash2, CalendarDays,
   List, Grid3X3,
 } from "lucide-react";
 import Header from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { supabase } from "@/lib/supabase/client";
 import { useAuthStore } from "@/store/authStore";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import Link from "next/link";
 import MeetingFormDialog from "@/components/calendar/MeetingFormDialog";
 
 const DAYS_HE   = ["ראשון","שני","שלישי","רביעי","חמישי","שישי","שבת"];
@@ -64,11 +66,26 @@ export default function CalendarPage() {
   const [showMeetingForm, setShowMeetingForm] = useState(false);
   const [editMeeting, setEditMeeting]   = useState<any>(null);
   const [formDefaultDate, setFormDefaultDate] = useState<string | undefined>();
+  const [employees, setEmployees]       = useState<{id:string; full_name:string}[]>([]);
+  const [filterEmployee, setFilterEmployee] = useState("me");
+  const [dragEvent, setDragEvent]       = useState<CalEvent | null>(null);
+  const [showLegend, setShowLegend]     = useState(false);
+  const [sidebarMode, setSidebarMode]   = useState<"pinned" | "floating">("pinned");
+  const [floatPos, setFloatPos]         = useState({ x: 20, y: 100 });
+  const [showSidebarMenu, setShowSidebarMenu] = useState(false);
+  const dragState = useRef<{ ox: number; oy: number; px: number; py: number } | null>(null);
 
   const year  = currentDate.getFullYear();
   const month = currentDate.getMonth();
 
-  useEffect(() => { loadEvents(); }, [month, year, user]);
+  useEffect(() => {
+    if (user?.role === "admin") {
+      supabase.from("users").select("id,full_name").in("role",["admin","employee"]).eq("status","active")
+        .then(({ data }) => setEmployees(data || []));
+    }
+  }, [user]);
+
+  useEffect(() => { loadEvents(); }, [month, year, user, filterEmployee]);
 
   const loadEvents = async () => {
     if (!user) return;
@@ -81,15 +98,25 @@ export default function CalendarPage() {
       const result: CalEvent[] = [];
       const today = toYMD(new Date());
 
-      // Tasks due in range
-      const { data: tasks } = await supabase
+      // Tasks due in range — filter by employee
+      let taskQuery = supabase
         .from("tasks")
-        .select("id,title,due_date,status,customer:customers(company_name)")
+        .select("id,title,due_date,status,assigned_user_id,customer:customers(company_name)")
         .not("due_date","is",null)
         .gte("due_date", from)
         .lte("due_date", to)
         .neq("status","completed")
         .neq("status","cancelled");
+
+      if (user.role === "employee") {
+        taskQuery = taskQuery.eq("assigned_user_id", user.id);
+      } else if (filterEmployee === "me") {
+        taskQuery = taskQuery.eq("assigned_user_id", user.id);
+      } else if (filterEmployee !== "all") {
+        taskQuery = taskQuery.eq("assigned_user_id", filterEmployee);
+      }
+
+      const { data: tasks } = await taskQuery;
 
       tasks?.forEach(t => {
         const d = t.due_date.split("T")[0];
@@ -104,20 +131,27 @@ export default function CalendarPage() {
       // Meetings in range
       const res = await fetch(`/api/meetings?from=${from}&to=${to}`);
       const json = await res.json();
-      (json.data || []).forEach((m: any) => {
-        result.push({
-          id: m.id, title: m.title,
-          date: toLocalDate(m.start_time),
-          type: "meeting", color: "#3b82f6",
-          time: timeStr(m.start_time),
-          endTime: m.end_time ? timeStr(m.end_time) : undefined,
-          customer_name: m.customer?.company_name,
-          location: m.location,
-          meeting_link: m.meeting_link,
-          notes: m.notes,
-          raw: m,
+      const targetId = filterEmployee === "me" ? user.id : filterEmployee === "all" ? null : filterEmployee;
+      (json.data || [])
+        .filter((m: any) => {
+          if (!targetId) return true; // "all"
+          const participantIds: string[] = (m.participants || []).map((p: any) => p.user?.id).filter(Boolean);
+          return m.created_by === targetId || participantIds.includes(targetId);
+        })
+        .forEach((m: any) => {
+          result.push({
+            id: m.id, title: m.title,
+            date: toLocalDate(m.start_time),
+            type: "meeting", color: "#3b82f6",
+            time: timeStr(m.start_time),
+            endTime: m.end_time ? timeStr(m.end_time) : undefined,
+            customer_name: m.customer?.company_name,
+            location: m.location,
+            meeting_link: m.meeting_link,
+            notes: m.notes,
+            raw: m,
+          });
         });
-      });
 
       setEvents(result);
     } catch { toast.error("שגיאה בטעינה"); }
@@ -126,11 +160,56 @@ export default function CalendarPage() {
 
   const getEventsForDay = (dateStr: string) => events.filter(e => e.date === dateStr);
 
+  const handleDropOnDay = async (newDate: string) => {
+    if (!dragEvent) return;
+    if (dragEvent.date === newDate) { setDragEvent(null); return; }
+    if (dragEvent.type === "meeting") {
+      const m = dragEvent.raw;
+      const oldStart = new Date(m.start_time);
+      const oldEnd   = m.end_time ? new Date(m.end_time) : null;
+      const diff     = oldEnd ? oldEnd.getTime() - oldStart.getTime() : 0;
+      const [y,mo,d] = newDate.split("-").map(Number);
+      const newStart = new Date(oldStart); newStart.setFullYear(y,mo-1,d);
+      const newEnd   = oldEnd ? new Date(newStart.getTime() + diff) : null;
+      await fetch("/api/meetings", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: m.id, start_time: newStart.toISOString(), end_time: newEnd?.toISOString() }),
+      });
+      toast.success("הפגישה הועברה");
+      loadEvents();
+    } else {
+      // For tasks — update due_date
+      await fetch("/api/tasks", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: dragEvent.id, due_date: newDate }),
+      });
+      toast.success("תאריך המשימה עודכן");
+      loadEvents();
+    }
+    setDragEvent(null);
+  };
+
   const handleDeleteMeeting = async (id: string) => {
     if (!confirm("למחוק פגישה זו?")) return;
     const res = await fetch(`/api/meetings?id=${id}`, { method: "DELETE" });
     if (res.ok) { toast.success("הפגישה נמחקה"); loadEvents(); }
     else toast.error("שגיאה במחיקה");
+  };
+
+  const onDragStart = (e: React.MouseEvent) => {
+    e.preventDefault();
+    dragState.current = { ox: e.clientX - floatPos.x, oy: e.clientY - floatPos.y, px: floatPos.x, py: floatPos.y };
+    const onMove = (ev: MouseEvent) => {
+      if (!dragState.current) return;
+      setFloatPos({ x: ev.clientX - dragState.current.ox, y: ev.clientY - dragState.current.oy });
+    };
+    const onUp = () => {
+      dragState.current = null;
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
   };
 
   // ── Month view ──────────────────────────────────────────────────────────────
@@ -193,17 +272,36 @@ export default function CalendarPage() {
 
   const selectedEvents = selectedDay ? getEventsForDay(selectedDay) : [];
 
-  const EventChip = ({ ev, compact = false }: { ev: CalEvent; compact?: boolean }) => (
+  const EventChip = ({ ev, compact = false }: { ev: CalEvent; compact?: boolean }) => {
+    const chip = (
+      <div
+        draggable
+        onDragStart={e => { e.stopPropagation(); setDragEvent(ev); }}
+        onDragEnd={() => setDragEvent(null)}
+        className={cn(
+          "flex items-center gap-1 rounded px-1.5 py-0.5 text-white hover:opacity-90 transition-opacity cursor-grab active:cursor-grabbing",
+          compact ? "text-[9px]" : "text-[11px]"
+        )}
+        style={{ backgroundColor: ev.color }}
+        onClick={e => { e.stopPropagation(); setSelectedDay(ev.date); }}
+      >
+        {ev.time && <span className="opacity-80">{ev.time}</span>}
+        <span className="truncate font-medium">{ev.title}</span>
+      </div>
+    );
+    if (ev.type === "task" || ev.type === "overdue") {
+      return <Link href={`/tasks/${ev.id}`} onClick={e => e.stopPropagation()}>{chip}</Link>;
+    }
+    return chip;
+  };
+
+  const DropCell = ({ dateStr, children, className }: { dateStr: string; children: React.ReactNode; className?: string }) => (
     <div
-      className={cn(
-        "flex items-center gap-1 rounded px-1.5 py-0.5 text-white cursor-pointer hover:opacity-90 transition-opacity",
-        compact ? "text-[9px]" : "text-[11px]"
-      )}
-      style={{ backgroundColor: ev.color }}
-      onClick={e => { e.stopPropagation(); setSelectedDay(ev.date); }}
+      className={cn(className, dragEvent && "ring-2 ring-inset ring-[#16a34a]/30")}
+      onDragOver={e => e.preventDefault()}
+      onDrop={e => { e.preventDefault(); handleDropOnDay(dateStr); }}
     >
-      {ev.time && <span className="opacity-80">{ev.time}</span>}
-      <span className="truncate font-medium">{ev.title}</span>
+      {children}
     </div>
   );
 
@@ -245,48 +343,79 @@ export default function CalendarPage() {
             <span className="font-bold text-[#0f172a] text-base">{headerLabel()}</span>
           </div>
 
-          <Button onClick={() => { setEditMeeting(null); setFormDefaultDate(selectedDay || todayStr); setShowMeetingForm(true); }}>
-            <Plus className="h-4 w-4" /> פגישה חדשה
-          </Button>
+          <div className="flex items-center gap-2">
+            {user?.role === "admin" && (
+              <Select value={filterEmployee} onValueChange={setFilterEmployee}>
+                <SelectTrigger className="w-44 text-sm">
+                  <SelectValue placeholder="הצג יומן של" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="me">היומן שלי</SelectItem>
+                  <SelectItem value="all">כולם</SelectItem>
+                  {employees.map(e => (
+                    <SelectItem key={e.id} value={e.id}>{e.full_name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            <Button onClick={() => { setEditMeeting(null); setFormDefaultDate(selectedDay || todayStr); setShowMeetingForm(true); }}>
+              <Plus className="h-4 w-4" /> פגישה חדשה
+            </Button>
+          </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+        <div className={cn("grid grid-cols-1 gap-4", sidebarMode === "pinned" && "lg:grid-cols-4")}>
 
           {/* ── Calendar grid ── */}
-          <div className="lg:col-span-3 bg-white rounded-xl shadow-sm border border-[#f1f5f9] overflow-hidden">
+          <div className={cn("bg-white rounded-xl shadow-sm border border-[#f1f5f9] overflow-hidden", sidebarMode === "pinned" && "lg:col-span-3")}>
 
             {/* ── MONTH view ── */}
             {viewMode === "month" && (
               <>
-                <div className="grid grid-cols-7 border-b border-[#f1f5f9] bg-[#f8fafc]">
-                  {DAYS_HE.map(d => (
-                    <div key={d} className="text-center text-xs font-semibold text-[#64748b] py-2.5">{d}</div>
+                <div className="grid grid-cols-7 border-b border-[#f1f5f9] bg-gradient-to-b from-[#f8fafc] to-white">
+                  {DAYS_HE.map((d, i) => (
+                    <div key={d} className={cn(
+                      "text-center text-xs font-bold py-3 tracking-wide",
+                      i === 6 ? "text-red-400" : i === 5 ? "text-blue-400" : "text-[#64748b]"
+                    )}>{d}</div>
                   ))}
                 </div>
                 <div className="grid grid-cols-7">
                   {cells.map((dateStr, idx) => {
-                    if (!dateStr) return <div key={`e${idx}`} className="min-h-[90px] border-b border-l border-[#f8fafc] bg-[#fafafa]" />;
+                    if (!dateStr) return <div key={`e${idx}`} className="min-h-[90px] border-b border-l border-[#f1f5f9] bg-[#f8fafc]/60" />;
                     const dayEvs = getEventsForDay(dateStr);
                     const isToday    = dateStr === todayStr;
                     const isSelected = dateStr === selectedDay;
                     const day = parseInt(dateStr.split("-")[2]);
                     return (
-                      <div key={dateStr} onClick={() => setSelectedDay(dateStr)}
+                      <DropCell key={dateStr} dateStr={dateStr}
                         className={cn(
-                          "min-h-[90px] p-1.5 border-b border-l border-[#f8fafc] cursor-pointer transition-colors",
+                          "min-h-[90px] p-1.5 border-b border-l border-[#f1f5f9] cursor-pointer transition-colors group/cell",
                           isSelected ? "bg-[#f0fdf4]" : "hover:bg-[#f8fafc]"
-                        )}>
-                        <div className={cn(
-                          "w-6 h-6 rounded-full flex items-center justify-center text-xs font-semibold mb-1",
-                          isToday ? "bg-[#16a34a] text-white" : "text-[#374151]"
-                        )}>{day}</div>
+                        )}
+                      ><div onClick={() => setSelectedDay(dateStr)}>
+                        <div className="flex items-center justify-between mb-1">
+                          <div
+                            className={cn(
+                              "w-6 h-6 rounded-full flex items-center justify-center text-xs font-semibold",
+                              isToday ? "bg-[#16a34a] text-white" : "text-[#374151]"
+                            )}
+                            onClick={e => { e.stopPropagation(); setFormDefaultDate(dateStr); setEditMeeting(null); setShowMeetingForm(true); }}
+                            title="פגישה חדשה בתאריך זה"
+                          >{day}</div>
+                          <button
+                            onClick={e => { e.stopPropagation(); setFormDefaultDate(dateStr); setEditMeeting(null); setShowMeetingForm(true); }}
+                            className="opacity-0 group-hover/cell:opacity-100 transition-opacity w-4 h-4 rounded-full bg-[#16a34a] text-white flex items-center justify-center text-[10px] font-bold hover:bg-[#15803d]"
+                            title="פגישה חדשה"
+                          >+</button>
+                        </div>
                         <div className="space-y-0.5">
                           {dayEvs.slice(0, 3).map(ev => <EventChip key={ev.id} ev={ev} compact />)}
                           {dayEvs.length > 3 && (
                             <div className="text-[9px] text-[#94a3b8] px-1">+{dayEvs.length - 3} עוד</div>
                           )}
                         </div>
-                      </div>
+                      </div></DropCell>
                     );
                   })}
                 </div>
@@ -316,19 +445,20 @@ export default function CalendarPage() {
                     const dayEvs = getEventsForDay(dateStr);
                     const isSelected = dateStr === selectedDay;
                     return (
-                      <div key={dateStr}
-                        onClick={() => setSelectedDay(dateStr)}
+                      <DropCell key={dateStr} dateStr={dateStr}
                         className={cn(
                           "border-l border-[#f8fafc] p-2 space-y-1 cursor-pointer hover:bg-[#f8fafc] transition-colors",
                           isSelected && "bg-[#f0fdf4]"
                         )}>
-                        {dayEvs.map(ev => <EventChip key={ev.id} ev={ev} />)}
-                        {dayEvs.length === 0 && (
-                          <div className="h-full flex items-center justify-center opacity-0 hover:opacity-100">
-                            <Plus className="h-4 w-4 text-[#94a3b8]" />
-                          </div>
-                        )}
-                      </div>
+                        <div onClick={() => setSelectedDay(dateStr)} className="min-h-full">
+                          {dayEvs.map(ev => <EventChip key={ev.id} ev={ev} />)}
+                          {dayEvs.length === 0 && (
+                            <div className="h-full flex items-center justify-center opacity-0 hover:opacity-100">
+                              <Plus className="h-4 w-4 text-[#94a3b8]" />
+                            </div>
+                          )}
+                        </div>
+                      </DropCell>
                     );
                   })}
                 </div>
@@ -365,7 +495,11 @@ export default function CalendarPage() {
                             <div className="w-2.5 h-2.5 rounded-full mt-1.5 shrink-0" style={{ backgroundColor: ev.color }} />
                             <div className="flex-1">
                               <div className="flex items-center gap-2">
-                                <span className="font-medium text-sm text-[#0f172a]">{ev.title}</span>
+                                {(ev.type === "task" || ev.type === "overdue") ? (
+                                  <Link href={`/tasks/${ev.id}`} className="font-medium text-sm text-[#0f172a] hover:text-[#16a34a] hover:underline">{ev.title}</Link>
+                                ) : (
+                                  <span className="font-medium text-sm text-[#0f172a]">{ev.title}</span>
+                                )}
                                 {ev.time && <span className="text-xs text-[#64748b]">{ev.time}{ev.endTime ? `–${ev.endTime}` : ""}</span>}
                               </div>
                               {ev.customer_name && <p className="text-xs text-[#64748b] mt-0.5">{ev.customer_name}</p>}
@@ -390,37 +524,114 @@ export default function CalendarPage() {
           </div>
 
           {/* ── Sidebar ── */}
-          <div className="space-y-4">
-
-            {/* Legend */}
-            <div className="bg-white rounded-xl border border-[#f1f5f9] p-4">
-              <h3 className="font-semibold text-[#0f172a] mb-3 text-sm">מקרא</h3>
-              <div className="space-y-1.5 text-sm">
-                {[
-                  { color:"#f59e0b", label:"משימות לביצוע" },
-                  { color:"#ef4444", label:"משימות באיחור" },
-                  { color:"#3b82f6", label:"פגישות" },
-                ].map(({ color, label }) => (
-                  <div key={label} className="flex items-center gap-2">
-                    <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: color }} />
-                    <span className="text-[#64748b]">{label}</span>
-                  </div>
-                ))}
+          <div
+            className={cn(
+              sidebarMode === "pinned"
+                ? "space-y-3"
+                : "fixed z-50 w-[260px] bg-white rounded-2xl shadow-2xl border border-[#e2e8f0] overflow-hidden"
+            )}
+            style={sidebarMode === "floating" ? { left: floatPos.x, top: floatPos.y } : undefined}
+          >
+            {sidebarMode === "floating" && (
+              <div
+                onMouseDown={onDragStart}
+                className="flex items-center justify-between px-3 py-2.5 bg-[#0f172a] cursor-grab active:cursor-grabbing select-none border-b border-white/5"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-white/25 text-sm tracking-widest">⠿⠿</span>
+                  <span className="text-[11px] font-bold text-white/60 uppercase tracking-wide">לוח צד</span>
+                </div>
+                <div className="relative">
+                  <button onClick={e => { e.stopPropagation(); setShowSidebarMenu(v => !v); }}
+                    className="p-1 rounded hover:bg-white/10 text-white/50 transition-colors">
+                    <MoreVertical className="h-4 w-4" />
+                  </button>
+                  {showSidebarMenu && (
+                    <>
+                      <div className="fixed inset-0 z-10" onClick={() => setShowSidebarMenu(false)} />
+                      <div className="absolute left-0 top-full mt-1 w-44 bg-white rounded-xl shadow-xl border border-[#e2e8f0] z-20 overflow-hidden" dir="rtl">
+                        <button onClick={() => { setSidebarMode("pinned"); setShowSidebarMenu(false); }}
+                          className="w-full text-right px-3 py-2.5 text-sm text-[#374151] hover:bg-[#f8fafc] flex items-center gap-2.5 transition-colors">
+                          📌 הצמד ללוח
+                        </button>
+                        <button onClick={() => setShowSidebarMenu(false)}
+                          className="w-full text-right px-3 py-2.5 text-sm hover:bg-[#f8fafc] flex items-center gap-2.5 border-t border-[#f8fafc] font-semibold text-[#16a34a] transition-colors">
+                          ✓ רחף
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
               </div>
+            )}
+            <div className={cn(sidebarMode === "floating" ? "p-3 space-y-3 max-h-[calc(100vh-180px)] overflow-y-auto" : "space-y-3")}>
+            {sidebarMode === "pinned" && (
+              <div className="flex items-center justify-between px-0.5">
+                <span className="text-[9px] font-bold uppercase tracking-widest text-[#94a3b8]">לוח צד</span>
+                <div className="relative">
+                  <button onClick={e => { e.stopPropagation(); setShowSidebarMenu(v => !v); }}
+                    className="p-1 rounded hover:bg-[#e2e8f0] text-[#94a3b8] transition-colors">
+                    <MoreVertical className="h-3.5 w-3.5" />
+                  </button>
+                  {showSidebarMenu && (
+                    <>
+                      <div className="fixed inset-0 z-10" onClick={() => setShowSidebarMenu(false)} />
+                      <div className="absolute left-0 top-full mt-1 w-44 bg-white rounded-xl shadow-xl border border-[#e2e8f0] z-20 overflow-hidden" dir="rtl">
+                        <button onClick={() => setShowSidebarMenu(false)}
+                          className="w-full text-right px-3 py-2.5 text-sm hover:bg-[#f8fafc] flex items-center gap-2.5 font-semibold text-[#16a34a] transition-colors">
+                          ✓ מוצמד ללוח
+                        </button>
+                        <button onClick={() => { setSidebarMode("floating"); setShowSidebarMenu(false); setFloatPos({ x: 20, y: 100 }); }}
+                          className="w-full text-right px-3 py-2.5 text-sm text-[#374151] hover:bg-[#f8fafc] flex items-center gap-2.5 border-t border-[#f8fafc] transition-colors">
+                          🪟 רחף
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Legend — collapsible */}
+            <div className="bg-white rounded-xl border border-[#f1f5f9] overflow-hidden">
+              <button
+                onClick={() => setShowLegend(v => !v)}
+                className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-[#f8fafc] transition-colors"
+              >
+                <span className="font-semibold text-[#0f172a] text-sm">מקרא</span>
+                <ChevronDown className={cn("h-4 w-4 text-[#94a3b8] transition-transform duration-200", showLegend && "rotate-180")} />
+              </button>
+              {showLegend && (
+                <div className="border-t border-[#f1f5f9] px-4 py-3 space-y-2">
+                  {[
+                    { color:"#f59e0b", label:"משימות לביצוע" },
+                    { color:"#ef4444", label:"משימות באיחור" },
+                    { color:"#3b82f6", label:"פגישות" },
+                  ].map(({ color, label }) => (
+                    <div key={label} className="flex items-center gap-2 text-sm">
+                      <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: color }} />
+                      <span className="text-[#64748b]">{label}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
-            {/* Month stats */}
-            <div className="bg-white rounded-xl border border-[#f1f5f9] p-4">
-              <h3 className="font-semibold text-[#0f172a] mb-3 text-sm">סיכום חודש</h3>
-              <div className="space-y-2">
+            {/* Month stats — compact horizontal */}
+            <div className="bg-white rounded-xl border border-[#f1f5f9] p-3">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-[#94a3b8] mb-2 px-1">סיכום חודש</p>
+              <div className="grid grid-cols-3 gap-1.5">
                 {[
-                  { icon:<CheckSquare className="h-3.5 w-3.5 text-[#f59e0b]" />, label:"משימות", count: events.filter(e=>e.type==="task").length },
-                  { icon:<CheckSquare className="h-3.5 w-3.5 text-red-500"   />, label:"באיחור",  count: events.filter(e=>e.type==="overdue").length },
-                  { icon:<Users       className="h-3.5 w-3.5 text-blue-500"  />, label:"פגישות",  count: events.filter(e=>e.type==="meeting").length },
-                ].map(({ icon, label, count }) => (
-                  <div key={label} className="flex items-center justify-between text-sm">
-                    <span className="text-[#64748b] flex items-center gap-1.5">{icon}{label}</span>
-                    <span className="font-bold text-[#0f172a]">{count}</span>
+                  { color:"#f59e0b", label:"משימות", count: events.filter(e=>e.type==="task").length },
+                  { color:"#ef4444", label:"באיחור",  count: events.filter(e=>e.type==="overdue").length },
+                  { color:"#3b82f6", label:"פגישות",  count: events.filter(e=>e.type==="meeting").length },
+                ].map(({ color, label, count }) => (
+                  <div key={label} className="flex flex-col items-center py-2 rounded-lg bg-[#f8fafc] border border-[#f1f5f9]">
+                    <span className="text-xl font-bold text-[#0f172a] leading-none">{count}</span>
+                    <div className="flex items-center gap-1 mt-1">
+                      <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: color }} />
+                      <span className="text-[10px] text-[#64748b]">{label}</span>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -452,7 +663,11 @@ export default function CalendarPage() {
                               <div className="flex items-start gap-2">
                                 <div className="w-2 h-2 rounded-full mt-1.5 shrink-0" style={{ backgroundColor: ev.color }} />
                                 <div>
-                                  <p className="text-sm font-medium text-[#0f172a]">{ev.title}</p>
+                                  {(ev.type === "task" || ev.type === "overdue") ? (
+                                    <Link href={`/tasks/${ev.id}`} className="text-sm font-medium text-[#0f172a] hover:text-[#16a34a] hover:underline">{ev.title}</Link>
+                                  ) : (
+                                    <p className="text-sm font-medium text-[#0f172a]">{ev.title}</p>
+                                  )}
                                   {ev.time && (
                                     <p className="text-xs text-[#64748b] flex items-center gap-1 mt-0.5">
                                       <Clock className="h-3 w-3" />{ev.time}{ev.endTime ? ` – ${ev.endTime}` : ""}
@@ -489,6 +704,7 @@ export default function CalendarPage() {
                 </div>
               </div>
             )}
+            </div>
           </div>
         </div>
       </div>

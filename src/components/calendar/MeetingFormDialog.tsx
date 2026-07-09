@@ -36,13 +36,19 @@ export default function MeetingFormDialog({ defaultDate, meeting, onClose, onSav
   const [participantIds, setParticipantIds] = useState<string[]>(
     meeting?.participants?.map((p: any) => p.user?.id).filter(Boolean) || []
   );
-  const [clients, setClients]     = useState<{ id: string; company_name: string }[]>([]);
-  const [employees, setEmployees] = useState<{ id: string; full_name: string }[]>([]);
+  const [clients, setClients]     = useState<{ id: string; company_name: string; email?: string }[]>([]);
+  const [employees, setEmployees] = useState<{ id: string; full_name: string; email?: string }[]>([]);
   const [saving, setSaving]       = useState(false);
+  const [sendToParticipants, setSendToParticipants] = useState(true);
+  const [sendToClient, setSendToClient]             = useState(false);
 
   useEffect(() => {
-    supabase.from("customers").select("id,company_name").eq("status","active").then(({ data }) => setClients(data || []));
-    supabase.from("users").select("id,full_name").eq("status","active").neq("role","client").then(({ data }) => setEmployees(data || []));
+    supabase.from("customers").select("id,company_name,email").eq("status","active")
+      .then(({ data }) => setClients(data || []));
+    // Fetch via API (service role) to bypass RLS
+    fetch("/api/users")
+      .then(r => r.json())
+      .then(json => setEmployees((json.data || []).filter((u: any) => u.role !== "client" && u.status === "active")));
   }, []);
 
   const handleSave = async () => {
@@ -51,6 +57,11 @@ export default function MeetingFormDialog({ defaultDate, meeting, onClose, onSav
     try {
       const startISO = `${date}T${startTime}:00`;
       const endISO   = `${date}T${endTime}:00`;
+
+      // Collect extra emails for client contact if requested
+      const clientEmail = sendToClient && customerId
+        ? clients.find(c => c.id === customerId)?.email || null
+        : null;
 
       if (meeting) {
         const res = await fetch("/api/meetings", {
@@ -61,6 +72,8 @@ export default function MeetingFormDialog({ defaultDate, meeting, onClose, onSav
             start_time: startISO, end_time: endISO,
             location, meeting_link: meetingLink, notes,
             participant_ids: participantIds,
+            send_to_participants: sendToParticipants,
+            extra_emails: clientEmail ? [clientEmail] : [],
           }),
         });
         if (!res.ok) throw new Error((await res.json()).error);
@@ -74,6 +87,8 @@ export default function MeetingFormDialog({ defaultDate, meeting, onClose, onSav
             location, meeting_link: meetingLink, notes,
             participant_ids: participantIds,
             created_by: user?.id,
+            send_to_participants: sendToParticipants,
+            extra_emails: clientEmail ? [clientEmail] : [],
           }),
         });
         if (!res.ok) throw new Error((await res.json()).error);
@@ -174,6 +189,26 @@ export default function MeetingFormDialog({ defaultDate, meeting, onClose, onSav
                 </label>
               ))}
             </div>
+          </div>
+
+          {/* Email notifications */}
+          <div className="space-y-2 bg-[#f8fafc] rounded-xl p-3 border border-[#e2e8f0]">
+            <p className="text-xs font-semibold text-[#64748b] mb-1">📧 שליחת מייל זימון</p>
+            <label className="flex items-center gap-2.5 cursor-pointer">
+              <input type="checkbox" checked={sendToParticipants} onChange={e => setSendToParticipants(e.target.checked)}
+                className="w-4 h-4 accent-[#16a34a]" />
+              <span className="text-sm text-[#0f172a]">שלח מייל למשתתפים שנבחרו</span>
+            </label>
+            <label className={cn("flex items-center gap-2.5 cursor-pointer", !customerId && "opacity-40")}>
+              <input type="checkbox" checked={sendToClient} onChange={e => setSendToClient(e.target.checked)}
+                disabled={!customerId} className="w-4 h-4 accent-[#16a34a]" />
+              <span className="text-sm text-[#0f172a]">
+                שלח מייל ללקוח
+                {customerId && clients.find(c=>c.id===customerId)?.email
+                  ? ` (${clients.find(c=>c.id===customerId)?.email})`
+                  : customerId ? " (אין מייל ללקוח)" : ""}
+              </span>
+            </label>
           </div>
 
           {/* Notes */}

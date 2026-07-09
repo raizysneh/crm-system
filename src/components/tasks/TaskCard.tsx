@@ -53,11 +53,16 @@ export default function TaskCard({ task, onStatusChange, onRefresh, onEdit }: Pr
 
   const overdue = task.due_date && isOverdue(task.due_date) && task.status !== "completed";
 
+  const priorityBorder = task.priority === "high" ? "border-r-[3px] border-r-red-400"
+    : task.priority === "medium" ? "border-r-[3px] border-r-amber-400"
+    : "border-r-[3px] border-r-green-400";
+
   return (
     <div className={cn(
-      "bg-white border border-[#e2e8f0] rounded-xl p-4 hover:shadow-md transition-shadow",
+      "group bg-white border border-[#e2e8f0] rounded-xl p-4 hover:shadow-md hover:-translate-y-px transition-all duration-150",
+      priorityBorder,
       task.pending_deletion && "opacity-60 border-red-200 bg-red-50",
-      overdue && "border-red-200"
+      overdue && "border-l-red-200"
     )}>
       <div className="flex items-start gap-3">
         {/* Checkbox */}
@@ -84,7 +89,17 @@ export default function TaskCard({ task, onStatusChange, onRefresh, onEdit }: Pr
                 {task.title}
               </h3>
             </Link>
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex items-center gap-1.5 shrink-0">
+              {/* Quick edit button — visible on hover */}
+              {onEdit && (
+                <button
+                  onClick={() => onEdit(task)}
+                  className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-lg hover:bg-[#f0fdf4] text-[#16a34a]"
+                  title="ערוך משימה"
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                </button>
+              )}
               {/* Priority dot */}
               <span className={cn(
                 "w-2 h-2 rounded-full",

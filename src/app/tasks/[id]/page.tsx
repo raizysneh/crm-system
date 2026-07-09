@@ -45,6 +45,7 @@ export default function TaskDetailPage() {
   const [uploading, setUploading] = useState(false);
   const [clients, setClients] = useState<Customer[]>([]);
   const [employees, setEmployees] = useState<User[]>([]);
+  const [sendCompletionEmail, setSendCompletionEmail] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { loadTask(); }, [id]);
@@ -57,7 +58,7 @@ export default function TaskDetailPage() {
         supabase.from("subtasks").select("*").eq("task_id", id).order("sort_order"),
         supabase.from("time_entries").select("*, user:users!user_id(full_name)").eq("task_id", id).order("start_time", { ascending: false }),
         supabase.from("customers").select("id,company_name").eq("status","active"),
-        supabase.from("users").select("id,full_name").eq("role","employee").eq("status","active"),
+        supabase.from("users").select("id,full_name").in("role",["admin","employee"]).eq("status","active"),
         supabase.from("task_attachments").select("*").eq("task_id", id).order("created_at", { ascending: false }),
       ]);
 
@@ -116,8 +117,17 @@ export default function TaskDetailPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id, status }),
     });
-    if (!res.ok) toast.error("שגיאה בעדכון");
-    else setTask(prev => prev ? { ...prev, status: status as any } : null);
+    if (!res.ok) { toast.error("שגיאה בעדכון"); return; }
+    setTask(prev => prev ? { ...prev, status: status as any } : null);
+    if (status === "completed" && sendCompletionEmail) {
+      fetch("/api/task-notify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ task_id: id }),
+      }).then(r => r.json()).then(j => {
+        if (!j.skipped) toast.success("מייל השלמה נשלח");
+      }).catch(() => {});
+    }
   };
 
   const handleStartTimer = () => {
@@ -392,6 +402,17 @@ export default function TaskDetailPage() {
                     {getStatusLabel(s)}
                   </button>
                 ))}
+                {task.status !== "completed" && (
+                  <label className="flex items-center gap-2 mt-2 pt-2 border-t border-[#f1f5f9] cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={sendCompletionEmail}
+                      onChange={e => setSendCompletionEmail(e.target.checked)}
+                      className="w-4 h-4 accent-[#16a34a]"
+                    />
+                    <span className="text-xs text-[#64748b]">שלח מייל בסיום ללקוח ולעובד</span>
+                  </label>
+                )}
               </CardContent>
             </Card>
 

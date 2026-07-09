@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Eye, EyeOff, Building2, Lock, Mail, User } from "lucide-react";
+import { Eye, EyeOff, Building2, Lock, Mail, User, ShieldOff } from "lucide-react";
 import { supabase } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,7 +13,7 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
-type Mode = "login" | "register" | "forgot";
+type Mode = "login" | "register" | "forgot" | "mfa-blocked";
 
 const loginSchema = z.object({
   email: z.string().email("כתובת מייל לא תקינה"),
@@ -36,11 +36,14 @@ type RegisterForm = z.infer<typeof registerSchema>;
 export default function LoginPage() {
   const router = useRouter();
   const [mode, setMode] = useState<Mode>("login");
-  const [showPassword, setShowPassword]         = useState(false);
-  const [showConfirm,  setShowConfirm]          = useState(false);
-  const [isLoading,    setIsLoading]            = useState(false);
-  const [forgotEmail,  setForgotEmail]          = useState("");
-  const [forgotLoading, setForgotLoading]       = useState(false);
+  const [showPassword, setShowPassword]   = useState(false);
+  const [showConfirm,  setShowConfirm]    = useState(false);
+  const [isLoading,    setIsLoading]      = useState(false);
+  const [forgotEmail,  setForgotEmail]    = useState("");
+  const [forgotLoading, setForgotLoading] = useState(false);
+  const [mfaEmail,     setMfaEmail]       = useState("");
+  const [mfaPassword,  setMfaPassword]    = useState("");
+  const [mfaRemoving,  setMfaRemoving]    = useState(false);
 
   const loginForm = useForm<LoginForm>({
     resolver: zodResolver(loginSchema),
@@ -54,19 +57,65 @@ export default function LoginPage() {
   const onLogin = async (data: LoginForm) => {
     setIsLoading(true);
     try {
-      const { error } = await supabase.auth.signInWithPassword({
+      const { data: authData, error } = await supabase.auth.signInWithPassword({
         email: data.email,
         password: data.password,
       });
+
       if (error) {
         toast.error(error.message.includes("Invalid login") ? "כתובת מייל או סיסמה שגויים" : error.message);
         return;
       }
+
+      // MFA required: session is null even though no error
+      if (!authData.session) {
+        setMfaEmail(data.email);
+        setMfaPassword(data.password);
+        setMode("mfa-blocked");
+        return;
+      }
+
       router.push("/dashboard");
     } catch {
       toast.error("שגיאה בהתחברות, נסה שוב");
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  /* ── Remove phone MFA and retry login ── */
+  const handleRemoveMfa = async () => {
+    setMfaRemoving(true);
+    try {
+      const res = await fetch("/api/disable-mfa", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: mfaEmail }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        toast.error(json.error || "שגיאה בהסרת האימות");
+        return;
+      }
+
+      // Retry login now that MFA is removed
+      const { data: authData, error } = await supabase.auth.signInWithPassword({
+        email: mfaEmail,
+        password: mfaPassword,
+      });
+
+      if (error || !authData.session) {
+        toast.error("האימות הוסר — כעת נסי להתחבר שוב");
+        setMode("login");
+        return;
+      }
+
+      toast.success("האימות הוסר, מתחבר...");
+      router.push("/dashboard");
+    } catch {
+      toast.error("שגיאה, נסי שוב");
+    } finally {
+      setMfaRemoving(false);
     }
   };
 
@@ -90,7 +139,6 @@ export default function LoginPage() {
         return;
       }
 
-      // Auto-login after successful registration
       const { error: loginErr } = await supabase.auth.signInWithPassword({
         email: data.email,
         password: data.password,
@@ -143,7 +191,7 @@ export default function LoginPage() {
         <div className="bg-white rounded-2xl shadow-xl border border-[#e2e8f0] overflow-hidden">
 
           {/* ── Tab switcher (login / register) ── */}
-          {mode !== "forgot" && (
+          {mode === "login" || mode === "register" ? (
             <div className="flex border-b border-[#f1f5f9]">
               {(["login", "register"] as const).map(m => (
                 <button
@@ -160,7 +208,7 @@ export default function LoginPage() {
                 </button>
               ))}
             </div>
-          )}
+          ) : null}
 
           <div className="p-8">
 
@@ -209,6 +257,29 @@ export default function LoginPage() {
                   {isLoading ? "מתחבר..." : "התחבר"}
                 </Button>
               </form>
+            )}
+
+            {/* ── MFA BLOCKED ── */}
+            {mode === "mfa-blocked" && (
+              <div className="space-y-5 text-center">
+                <div className="w-14 h-14 bg-amber-50 rounded-full flex items-center justify-center mx-auto">
+                  <ShieldOff className="h-7 w-7 text-amber-500" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-[#0f172a] mb-1">אימות דו-שלבי פעיל</h2>
+                  <p className="text-sm text-[#64748b]">
+                    החשבון שלך מוגן באימות טלפוני (OTP).<br />
+                    לחצי על הכפתור למטה להסרתו ולהתחברות ישירה במייל וסיסמה.
+                  </p>
+                </div>
+                <Button onClick={handleRemoveMfa} loading={mfaRemoving} className="w-full h-10">
+                  {mfaRemoving ? "מסיר אימות..." : "הסר אימות טלפוני והתחבר"}
+                </Button>
+                <button type="button" onClick={() => setMode("login")}
+                  className="text-sm text-[#94a3b8] hover:text-[#64748b]">
+                  חזרה
+                </button>
+              </div>
             )}
 
             {/* ── REGISTER ── */}

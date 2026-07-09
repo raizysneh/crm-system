@@ -33,7 +33,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     <div className="min-h-screen bg-[#f8fafc]">
       <Sidebar />
       <FloatingTimer />
-      <main className="mr-60 min-h-screen transition-all duration-300">
+      <main className="mr-[220px] min-h-screen transition-all duration-300">
         {children}
       </main>
     </div>

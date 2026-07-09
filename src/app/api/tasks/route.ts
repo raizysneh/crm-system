@@ -23,8 +23,10 @@ export async function GET(req: NextRequest) {
       .select(`*, customer:customers(id,company_name,logo_url), project:projects(id,name), assigned_user:users!assigned_user_id(id,full_name), subtasks(id,completed)`)
       .order("created_at", { ascending: false });
 
-    if (role === "employee" && userId) q = q.eq("assigned_user_id", userId);
+    // Both employees AND admins see only their own assigned tasks (when role param sent)
+    if ((role === "employee" || role === "admin") && userId) q = q.eq("assigned_user_id", userId);
     if (status)   q = q.eq("status", status);
+    else if (searchParams.get("exclude_completed") === "true") q = q.neq("status", "completed");
     if (priority) q = q.eq("priority", priority);
     if (custId)   q = q.eq("customer_id", custId);
 

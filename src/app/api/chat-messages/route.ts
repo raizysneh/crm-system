@@ -9,6 +9,35 @@ function getAdminClient() {
   );
 }
 
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json();
+    const { conversation_id, sender_id, content, message_type, reply_to } = body;
+    if (!conversation_id || !sender_id || !content)
+      return NextResponse.json({ error: "חסרים שדות חובה" }, { status: 400 });
+
+    const admin = getAdminClient();
+    // DB only allows 'text' / 'voice' — store gif/image as "text" with __IMG__ prefix
+    const safeType = (message_type === "gif" || message_type === "image") ? "text" : (message_type || "text");
+    const safeContent = (message_type === "gif" || message_type === "image") ? `__IMG__${content}` : content;
+
+    const { data, error } = await admin
+      .from("chat_messages")
+      .insert({ conversation_id, sender_id, content: safeContent, message_type: safeType, reply_to: reply_to || null })
+      .select("*, sender:users(id, full_name, avatar_url)")
+      .single();
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    // Bump conversation updated_at
+    await admin.from("chat_conversations").update({ updated_at: new Date().toISOString() }).eq("id", conversation_id);
+
+    return NextResponse.json(data);
+  } catch (e: any) {
+    return NextResponse.json({ error: e.message }, { status: 500 });
+  }
+}
+
 export async function PATCH(req: NextRequest) {
   try {
     const body = await req.json();

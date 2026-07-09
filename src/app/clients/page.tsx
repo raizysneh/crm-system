@@ -106,15 +106,20 @@ export default function ClientsPage() {
         </div>
 
         {/* Stats */}
-        <div className="grid grid-cols-3 gap-3 text-center">
+        <div className="grid grid-cols-3 gap-3">
           {[
-            { label: "סה\"כ לקוחות", value: clients.length },
-            { label: "פעילים", value: clients.filter(c => c.status === "active").length },
-            { label: "לא פעילים", value: clients.filter(c => c.status === "inactive").length },
+            { label: "סה\"כ לקוחות", value: clients.length,                                        color: "text-[#0f172a]",  bg: "bg-white",          border: "border-[#e2e8f0]", accent: "bg-[#e2e8f0]" },
+            { label: "פעילים",        value: clients.filter(c => c.status === "active").length,    color: "text-green-600",  bg: "bg-green-50/60",    border: "border-green-100", accent: "bg-green-200" },
+            { label: "לא פעילים",     value: clients.filter(c => c.status === "inactive").length,  color: "text-[#94a3b8]",  bg: "bg-slate-50/60",    border: "border-slate-100", accent: "bg-slate-200" },
           ].map(s => (
-            <div key={s.label} className="bg-white rounded-xl border border-[#e2e8f0] p-4">
-              <p className="text-2xl font-bold text-[#0f172a]">{s.value}</p>
-              <p className="text-sm text-[#64748b]">{s.label}</p>
+            <div key={s.label} className={`${s.bg} rounded-xl border ${s.border} p-4 flex items-center gap-4`}>
+              <div className={`w-10 h-10 rounded-full ${s.accent} flex items-center justify-center shrink-0`}>
+                <Building2 className="h-5 w-5 text-white opacity-70" />
+              </div>
+              <div>
+                <p className={`text-2xl font-bold leading-none ${s.color}`}>{s.value}</p>
+                <p className="text-sm text-[#64748b] mt-0.5">{s.label}</p>
+              </div>
             </div>
           ))}
         </div>
@@ -123,7 +128,7 @@ export default function ClientsPage() {
         {loading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {[1, 2, 3].map(i => (
-              <div key={i} className="h-44 bg-gray-100 rounded-xl animate-pulse" />
+              <div key={i} className="skeleton h-44 rounded-xl" />
             ))}
           </div>
         ) : filtered.length === 0 ? (
@@ -137,7 +142,7 @@ export default function ClientsPage() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {filtered.map((client) => (
-              <Card key={client.id} className={`relative hover:shadow-md transition-shadow ${client.status === "inactive" ? "opacity-60" : ""}`}>
+              <Card key={client.id} className={`relative transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg ${client.status === "inactive" ? "opacity-55" : ""}`}>
                 <div className="p-5">
                   {/* Header */}
                   <div className="flex items-start gap-3 mb-4">

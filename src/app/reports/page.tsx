@@ -542,18 +542,19 @@ export default function ReportsPage() {
 
         {/* Summary cards */}
         <div className="grid grid-cols-3 gap-4">
-          <Card><CardContent className="p-4 text-center">
-            <p className="text-2xl font-bold text-[#0f172a]">{formatHours(totalSeconds)}</p>
-            <p className="text-sm text-[#64748b]">סה"כ שעות</p>
-          </CardContent></Card>
-          <Card><CardContent className="p-4 text-center">
-            <p className="text-2xl font-bold text-[#0f172a]">{entries.length}</p>
-            <p className="text-sm text-[#64748b]">רשומות</p>
-          </CardContent></Card>
-          <Card><CardContent className="p-4 text-center">
-            <p className="text-2xl font-bold text-[#0f172a]">{customerGroups.length}</p>
-            <p className="text-sm text-[#64748b]">לקוחות</p>
-          </CardContent></Card>
+          {[
+            { label: "סה\"כ שעות",  value: formatHours(totalSeconds), bg: "from-green-50 to-emerald-50/50", border: "border-green-100", color: "text-green-700",  icon: "⏱" },
+            { label: "רשומות",       value: entries.length,            bg: "from-blue-50 to-sky-50/50",     border: "border-blue-100",  color: "text-blue-700",   icon: "📋" },
+            { label: "לקוחות",       value: customerGroups.length,     bg: "from-violet-50 to-purple-50/50",border: "border-violet-100",color: "text-violet-700", icon: "🏢" },
+          ].map(s => (
+            <div key={s.label} className={`bg-gradient-to-br ${s.bg} rounded-xl border ${s.border} p-4 flex items-center gap-4`}>
+              <span className="text-2xl shrink-0">{s.icon}</span>
+              <div>
+                <p className={`text-2xl font-bold leading-none ${s.color}`}>{s.value}</p>
+                <p className="text-sm text-[#64748b] mt-0.5">{s.label}</p>
+              </div>
+            </div>
+          ))}
         </div>
 
         {/* ── DETAILED — day header + customer+project rows (expandable per row) ── */}

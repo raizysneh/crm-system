@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
+import { sendMail } from "@/lib/mailer";
 
 function getAdminClient() {
   return createClient(
@@ -87,14 +88,38 @@ export async function PATCH(req: NextRequest) {
     const { id, full_name, role, phone, password, send_invite, email, status } = body;
     const admin = getAdminClient();
 
-    // Send password-reset / invite email
     if (send_invite && email) {
-      const { error } = await admin.auth.admin.generateLink({
-        type: "recovery",
+      // Generate magic invite link
+      const { data: linkData, error: linkErr } = await admin.auth.admin.generateLink({
+        type: "invite",
         email,
-        options: { redirectTo: `${process.env.NEXT_PUBLIC_APP_URL || ""}/login` },
+        options: { redirectTo: `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/login` },
       });
-      if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+      if (linkErr) return NextResponse.json({ error: linkErr.message }, { status: 400 });
+
+      const inviteUrl = (linkData as any)?.properties?.action_link || "";
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+
+      await sendMail({
+        to: email,
+        subject: "הוזמנת למערכת CRM",
+        html: `
+          <div dir="rtl" style="font-family:Arial,sans-serif;max-width:600px;margin:auto;padding:24px;background:#f8fafc;border-radius:12px;">
+            <div style="text-align:center;margin-bottom:24px;">
+              <div style="display:inline-flex;align-items:center;justify-content:center;width:64px;height:64px;background:#16a34a;border-radius:16px;margin-bottom:12px;">
+                <span style="color:white;font-size:28px;">🏢</span>
+              </div>
+              <h1 style="color:#0f172a;margin:0;font-size:22px;">ברוכים הבאים למערכת CRM</h1>
+            </div>
+            <p style="color:#374151;text-align:center;">הוזמנת להצטרף למערכת הניהול שלנו.</p>
+            <div style="margin:28px 0;text-align:center;">
+              <a href="${inviteUrl}" style="background:#16a34a;color:white;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;font-size:15px;">הגדר סיסמה והצטרף</a>
+            </div>
+            <p style="color:#94a3b8;font-size:12px;text-align:center;">הקישור בתוקף ל-24 שעות.<br/>אם לא ביקשת הזמנה זו, ניתן להתעלם ממייל זה.</p>
+            <hr style="border:none;border-top:1px solid #f1f5f9;margin:20px 0;" />
+            <p style="color:#94a3b8;font-size:11px;text-align:center;">מייל זה נשלח ממערכת CRM</p>
+          </div>`,
+      });
       return NextResponse.json({ ok: true });
     }
 

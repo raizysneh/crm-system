@@ -108,36 +108,44 @@ export default function AttendancePage() {
       <div className="p-6 space-y-5">
         {/* Clock in/out */}
         <div className="grid grid-cols-2 gap-4">
-          <Card>
-            <CardContent className="p-5 flex items-center gap-4">
-              <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${activeAttendance ? "bg-green-50" : "bg-gray-50"}`}>
-                <Clock className={`h-6 w-6 ${activeAttendance ? "text-green-600" : "text-gray-400"}`} />
-              </div>
-              <div className="flex-1">
-                <p className="text-sm text-[#64748b]">מצב נוכחות</p>
-                <p className="font-semibold text-[#0f172a]">
-                  {activeAttendance ? `נוכח מ-${formatTime(activeAttendance.check_in)}` : "לא נוכח"}
-                </p>
-              </div>
-              {activeAttendance ? (
-                <Button onClick={handleClockOut} loading={clockLoading} variant="destructive" size="sm">
-                  <LogOut className="h-4 w-4" /> יציאה
-                </Button>
-              ) : (
-                <Button onClick={handleClockIn} loading={clockLoading} size="sm">
-                  <LogIn className="h-4 w-4" /> כניסה
-                </Button>
+          <div className={`rounded-2xl border p-5 flex items-center gap-4 shadow-sm transition-all ${
+            activeAttendance
+              ? "bg-gradient-to-br from-green-50 to-emerald-50 border-green-100"
+              : "bg-white border-[#e2e8f0]"
+          }`}>
+            <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-sm ${
+              activeAttendance ? "bg-green-100" : "bg-[#f1f5f9]"
+            }`}>
+              <Clock className={`h-7 w-7 ${activeAttendance ? "text-green-600" : "text-[#94a3b8]"}`} />
+            </div>
+            <div className="flex-1">
+              <p className="text-xs text-[#64748b] font-medium">מצב נוכחות</p>
+              <p className={`font-bold text-base mt-0.5 ${activeAttendance ? "text-green-700" : "text-[#374151]"}`}>
+                {activeAttendance ? `נוכח מ-${formatTime(activeAttendance.check_in)}` : "לא נוכח"}
+              </p>
+              {activeAttendance && (
+                <div className="flex items-center gap-1 mt-0.5">
+                  <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                  <span className="text-xs text-green-600">פעיל עכשיו</span>
+                </div>
               )}
-            </CardContent>
-          </Card>
+            </div>
+            {activeAttendance ? (
+              <Button onClick={handleClockOut} loading={clockLoading} variant="destructive" size="sm">
+                <LogOut className="h-4 w-4" /> יציאה
+              </Button>
+            ) : (
+              <Button onClick={handleClockIn} loading={clockLoading} size="sm">
+                <LogIn className="h-4 w-4" /> כניסה
+              </Button>
+            )}
+          </div>
 
-          <Card>
-            <CardContent className="p-5">
-              <p className="text-sm text-[#64748b]">שעות היום</p>
-              <p className="text-3xl font-bold text-[#16a34a]">{formatHours(todayTotal)}</p>
-              <p className="text-xs text-[#94a3b8] mt-1">{todayAttendance.length} רשומות</p>
-            </CardContent>
-          </Card>
+          <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-2xl border border-blue-100 p-5 shadow-sm">
+            <p className="text-xs font-medium text-[#64748b]">שעות היום</p>
+            <p className="text-4xl font-bold text-blue-700 mt-1 leading-none">{formatHours(todayTotal)}</p>
+            <p className="text-xs text-[#94a3b8] mt-2">{todayAttendance.length} רשומות היום</p>
+          </div>
         </div>
 
         {/* Filters */}
@@ -162,7 +170,7 @@ export default function AttendancePage() {
             </div>
             {loading ? (
               <div className="p-5 space-y-3">
-                {[1, 2, 3].map(i => <div key={i} className="h-12 bg-gray-100 rounded animate-pulse" />)}
+                {[1, 2, 3].map(i => <div key={i} className="skeleton h-12 rounded-xl" />)}
               </div>
             ) : attendance.length === 0 ? (
               <div className="text-center py-10 text-[#94a3b8]">
