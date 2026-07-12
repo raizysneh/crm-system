@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Plus, Search, List, Columns, CheckSquare, AlertTriangle, Check, X, Archive, ChevronRight } from "lucide-react";
+import { Plus, Search, List, Columns, CheckSquare, AlertTriangle, Check, X, Archive, CalendarClock } from "lucide-react";
 import Header from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -35,10 +35,11 @@ export default function TasksPage() {
   const [filterEmployee, setFilterEmployee] = useState("me");
   const [showArchive, setShowArchive] = useState(false);
   const [archivedCount, setArchivedCount] = useState(0);
+  const [showFuture, setShowFuture] = useState(false);
 
   useEffect(() => {
     loadData();
-  }, [user, filterStatus, filterPriority, filterClient, filterEmployee, showArchive]);
+  }, [user, filterStatus, filterPriority, filterClient, filterEmployee, showArchive, showFuture]);
 
   const loadData = async () => {
     setLoading(true);
@@ -67,6 +68,7 @@ export default function TasksPage() {
       } else {
         params.set("exclude_completed", "true");
       }
+      if (!showFuture && !showArchive) params.set("hide_future", "true");
       if (filterPriority !== "all") params.set("priority", filterPriority);
       if (filterClient !== "all")   params.set("customer_id", filterClient);
 
@@ -279,6 +281,19 @@ export default function TasksPage() {
               <Columns className="h-4 w-4" />
             </button>
           </div>
+
+          <button
+            onClick={() => setShowFuture(v => !v)}
+            title="הצג/הסתר משימות עתידיות"
+            className={`flex items-center gap-1.5 text-sm px-3 py-2 rounded-lg border transition-colors ${
+              showFuture
+                ? "bg-purple-100 border-purple-300 text-purple-700"
+                : "bg-white border-[#e2e8f0] text-[#64748b] hover:bg-[#f1f5f9]"
+            }`}
+          >
+            <CalendarClock className="h-4 w-4" />
+            עתידיות
+          </button>
 
           <Button onClick={() => { setEditTask(null); setShowForm(true); }}>
             <Plus className="h-4 w-4" /> משימה חדשה

@@ -12,11 +12,12 @@ function admin() {
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
-    const userId   = searchParams.get("user_id");
-    const role     = searchParams.get("role");
-    const status   = searchParams.get("status");
-    const priority = searchParams.get("priority");
-    const custId   = searchParams.get("customer_id");
+    const userId     = searchParams.get("user_id");
+    const role       = searchParams.get("role");
+    const status     = searchParams.get("status");
+    const priority   = searchParams.get("priority");
+    const custId     = searchParams.get("customer_id");
+    const hideFuture = searchParams.get("hide_future") === "true";
 
     let q = admin()
       .from("tasks")
@@ -29,6 +30,11 @@ export async function GET(req: NextRequest) {
     else if (searchParams.get("exclude_completed") === "true") q = q.neq("status", "completed");
     if (priority) q = q.eq("priority", priority);
     if (custId)   q = q.eq("customer_id", custId);
+    // Hide tasks with a future due date — show only today/overdue/no-date
+    if (hideFuture) {
+      const today = new Date().toISOString().split("T")[0];
+      q = q.or(`due_date.is.null,due_date.lte.${today}`);
+    }
 
     const { data, error } = await q;
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
