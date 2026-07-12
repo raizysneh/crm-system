@@ -76,6 +76,39 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: dbError.message }, { status: 400 });
     }
 
+    // Send welcome email with login credentials (non-fatal)
+    try {
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+      const usedPassword = password || "Temp123456!";
+      await sendMail({
+        to: email,
+        subject: "ברוכים הבאים למערכת CRM – פרטי כניסה",
+        html: `
+          <div dir="rtl" style="font-family:Arial,sans-serif;max-width:600px;margin:auto;padding:24px;background:#f8fafc;border-radius:12px;">
+            <div style="text-align:center;margin-bottom:24px;">
+              <div style="display:inline-flex;align-items:center;justify-content:center;width:64px;height:64px;background:#16a34a;border-radius:16px;margin-bottom:12px;">
+                <span style="color:white;font-size:28px;">🏢</span>
+              </div>
+              <h1 style="color:#0f172a;margin:0;font-size:22px;">ברוכים הבאים למערכת CRM</h1>
+            </div>
+            <p style="color:#374151;text-align:center;">שלום ${full_name}, נוצר עבורך חשבון במערכת הניהול.</p>
+            <div style="background:white;border:1px solid #e2e8f0;border-radius:10px;padding:20px;margin:20px 0;">
+              <p style="margin:0 0 10px;color:#374151;font-weight:600;">פרטי כניסה:</p>
+              <p style="margin:4px 0;color:#374151;">📧 <strong>מייל:</strong> ${email}</p>
+              <p style="margin:4px 0;color:#374151;">🔑 <strong>סיסמה:</strong> ${usedPassword}</p>
+            </div>
+            <div style="margin:28px 0;text-align:center;">
+              <a href="${appUrl}/login" style="background:#16a34a;color:white;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;font-size:15px;">כניסה למערכת</a>
+            </div>
+            <p style="color:#94a3b8;font-size:12px;text-align:center;">מומלץ לשנות את הסיסמה לאחר הכניסה הראשונה.</p>
+            <hr style="border:none;border-top:1px solid #f1f5f9;margin:20px 0;" />
+            <p style="color:#94a3b8;font-size:11px;text-align:center;">מייל זה נשלח ממערכת CRM</p>
+          </div>`,
+      });
+    } catch (mailErr) {
+      console.warn("Failed to send welcome email:", mailErr);
+    }
+
     return NextResponse.json({ ok: true });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });

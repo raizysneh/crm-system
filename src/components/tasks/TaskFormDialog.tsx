@@ -105,26 +105,29 @@ export default function TaskFormDialog({ task, clients, employees, onClose, onSa
     try {
       // Shared fields — never include recurring columns unless used (avoids errors if DB migration not run)
       const sharedFields: Record<string, any> = {
-        title:             data.title,
-        description:       data.description || null,
-        customer_id:       data.customer_id,
-        project_id:        data.project_id  || null,
-        assigned_user_id:  data.assigned_user_id || null,
-        priority:          data.priority,
-        status:            data.status,
-        due_date:          data.due_date    || null,
-        notes:             data.notes       || null,
+        title:                    data.title,
+        description:              data.description || null,
+        customer_id:              data.customer_id,
+        project_id:               data.project_id  || null,
+        assigned_user_id:         data.assigned_user_id || null,
+        priority:                 data.priority,
+        status:                   data.status,
+        due_date:                 data.due_date    || null,
+        notes:                    data.notes       || null,
+        notify_client_on_complete: data.notify_client_on_complete || false,
       };
 
       if (data.is_recurring) {
+        const safeInterval = Number.isFinite(data.recurrence_interval) ? data.recurrence_interval : 1;
+        const safeCount    = Number.isFinite(data.recurrence_end_count) ? data.recurrence_end_count : null;
         Object.assign(sharedFields, {
           is_recurring:         true,
           recurrence_type:      data.recurrence_type,
-          recurrence_interval:  data.recurrence_interval || 1,
-          recurrence_days:      data.recurrence_type === "weekly" ? (data.recurrence_days || []) : null,
+          recurrence_interval:  safeInterval,
+          recurrence_days:      data.recurrence_type === "weekly" ? (data.recurrence_days || []) : [],
           recurrence_end_type:  data.recurrence_end_type,
           recurrence_end_date:  data.recurrence_end_type === "date" ? (data.recurrence_end_date || null) : null,
-          recurrence_end_count: data.recurrence_end_type === "count" ? data.recurrence_end_count : null,
+          recurrence_end_count: data.recurrence_end_type === "count" ? safeCount : null,
         });
       } else if (task?.is_recurring) {
         // Turn off recurrence if it was previously on
