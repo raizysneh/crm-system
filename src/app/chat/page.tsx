@@ -87,16 +87,19 @@ export default function ChatPage() {
   const typingTimeoutRef  = useRef<any>(null);
   const presenceChannelRef = useRef<any>(null);
 
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const textareaRef    = useRef<HTMLTextAreaElement>(null);
-  const msgSearchRef   = useRef<HTMLInputElement>(null);
-  const gifFileRef     = useRef<HTMLInputElement>(null);
+  const messagesEndRef  = useRef<HTMLDivElement>(null);
+  const textareaRef     = useRef<HTMLTextAreaElement>(null);
+  const msgSearchRef    = useRef<HTMLInputElement>(null);
+  const gifFileRef      = useRef<HTMLInputElement>(null);
+  const usersRef        = useRef<User[]>([]);       // mirror of users state for realtime callbacks
+  const activeConvRef   = useRef<ChatConversation | null>(null); // mirror of activeConv
 
   useEffect(() => {
     if (user) { loadConversations(); loadUsers(); }
   }, [user]);
 
   useEffect(() => {
+    activeConvRef.current = activeConv;
     if (activeConv) { loadMessages(activeConv.id); setupPresence(activeConv.id); }
     return () => { if (presenceChannelRef.current) supabase.removeChannel(presenceChannelRef.current); };
   }, [activeConv?.id]);
@@ -124,20 +127,25 @@ export default function ChatPage() {
     const channel = supabase
       .channel(`chat-msgs:${activeConv.id}`)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "chat_messages", filter: `conversation_id=eq.${activeConv.id}` },
-        async (payload) => {
-          const { data } = await supabase.from("chat_messages")
-            .select("*, sender:users(id, full_name, avatar_url)")
-            .eq("id", payload.new.id).single();
-          if (!data) return;
-          // Only add if not already in state (own messages added optimistically)
-          setMessages(prev => prev.some(m => m.id === data.id) ? prev : [...prev, data]);
-          // Desktop notification for messages from others when tab is not focused
-          if (data.sender_id !== user?.id && document.hidden) {
+        (payload) => {
+          // Build message immediately from payload — no extra DB round-trip
+          const senderFromList = usersRef.current.find(u => u.id === payload.new.sender_id);
+          const senderFallback = payload.new.sender_id === user?.id
+            ? { id: user.id, full_name: user.full_name, avatar_url: (user as any).avatar_url ?? null }
+            : null;
+          const msg = { ...payload.new, sender: senderFromList || senderFallback };
+          setMessages(prev => prev.some(m => m.id === msg.id) ? prev : [...prev, msg as any]);
+
+          // Desktop notification for messages from others (any tab state)
+          if (msg.sender_id !== user?.id) {
             if ("Notification" in window && Notification.permission === "granted") {
-              new Notification(data.sender?.full_name || "הודעה חדשה", {
-                body: (data as any).message_type === "voice" ? "🎤 הודעה קולית" : data.content,
+              const content = (msg as any).message_type === "voice"
+                ? "🎤 הודעה קולית"
+                : (msg.content?.startsWith("__IMG__") ? "📎 תמונה/GIF" : msg.content);
+              new Notification((senderFromList?.full_name || senderFallback?.full_name || "הודעה חדשה"), {
+                body: content,
                 icon: "/favicon.ico",
-                tag: data.conversation_id,
+                tag: msg.conversation_id,
               });
             }
           }
@@ -271,7 +279,9 @@ export default function ChatPage() {
 
   const loadUsers = async () => {
     const { data } = await supabase.from("users").select("*").neq("id", user?.id).eq("status", "active");
-    setUsers((data || []) as User[]);
+    const list = (data || []) as User[];
+    setUsers(list);
+    usersRef.current = list;
   };
 
   const loadSavedGifs = async () => {
