@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import {
   Send, MessageSquare, Search, Smile, Pencil, Trash2,
   Pin, Users, X, Check, Plus, Reply, SearchIcon, Mic,
-  StopCircle, Play, Pause, Settings, UserMinus, UserPlus, Film,
+  StopCircle, Play, Pause, Settings, UserMinus, UserPlus, Film, Bell, BellOff,
 } from "lucide-react";
 import Header from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
@@ -56,6 +56,7 @@ export default function ChatPage() {
   const [gifTab, setGifTab]                   = useState<"search" | "saved">("search");
   const [savedGifs, setSavedGifs]             = useState<string[]>([]);
   const [savedGifsLoading, setSavedGifsLoading] = useState(false);
+  const [notifPermission, setNotifPermission] = useState<NotificationPermission>("default");
   const [showNewChat, setShowNewChat]         = useState(false);
   const [showNewGroup, setShowNewGroup]       = useState(false);
   const [showGroupSettings, setShowGroupSettings] = useState(false);
@@ -114,12 +115,54 @@ export default function ChatPage() {
     return () => document.removeEventListener("click", handler);
   }, []);
 
-  // Request desktop notification permission on mount
+  // Request desktop notification permission on mount + track status
   useEffect(() => {
-    if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "default") {
-      Notification.requestPermission();
+    if (typeof window === "undefined" || !("Notification" in window)) return;
+    setNotifPermission(Notification.permission);
+    if (Notification.permission === "default") {
+      Notification.requestPermission().then(p => setNotifPermission(p));
     }
   }, []);
+
+  // Global subscription: notify for messages in ANY conversation the user is part of
+  useEffect(() => {
+    if (!user || conversations.length === 0) return;
+    const convIds = new Set(conversations.map(c => c.id));
+
+    const globalCh = supabase
+      .channel("global-chat-notif")
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "chat_messages" },
+        (payload) => {
+          // Only care about conversations this user is in
+          if (!convIds.has(payload.new.conversation_id)) return;
+          // Don't notify for own messages
+          if (payload.new.sender_id === user.id) return;
+          // Active conversation is handled separately (messages shown inline)
+          if (payload.new.conversation_id === activeConvRef.current?.id) return;
+
+          const sender = usersRef.current.find(u => u.id === payload.new.sender_id);
+          const senderName = sender?.full_name || "הודעה חדשה";
+          const body = payload.new.content?.startsWith("__IMG__")
+            ? "📎 תמונה/GIF"
+            : (payload.new.message_type === "voice" ? "🎤 הודעה קולית" : payload.new.content);
+
+          // Always show in-app toast so user can navigate to chat
+          const targetConv = conversations.find(c => c.id === payload.new.conversation_id);
+          toast.info(`💬 ${senderName}`, {
+            description: body,
+            action: targetConv ? { label: "פתח", onClick: () => setActiveConv(targetConv) } : undefined,
+            duration: 6000,
+          });
+
+          // Browser notification
+          if ("Notification" in window && Notification.permission === "granted") {
+            new Notification(senderName, { body, icon: "/favicon.ico", tag: payload.new.conversation_id });
+          }
+        })
+      .subscribe();
+
+    return () => { supabase.removeChannel(globalCh); };
+  }, [user, conversations]);
 
   // Realtime messages + reactions
   useEffect(() => {
@@ -612,9 +655,32 @@ export default function ChatPage() {
         {/* ── Sidebar ── */}
         <div className="w-72 border-l border-[#e2e8f0] bg-[#fafbfc] flex flex-col shrink-0">
           <div className="p-3 border-b border-[#f1f5f9] space-y-2 bg-white">
-            <div className="relative">
-              <Search className="absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-[#94a3b8]" />
-              <Input placeholder="חיפוש שיחה..." value={convSearch} onChange={e => setConvSearch(e.target.value)} className="pr-9 h-8 bg-[#f8fafc]" />
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1">
+                <Search className="absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-[#94a3b8]" />
+                <Input placeholder="חיפוש שיחה..." value={convSearch} onChange={e => setConvSearch(e.target.value)} className="pr-9 h-8 bg-[#f8fafc]" />
+              </div>
+              <button
+                title={notifPermission === "granted" ? "התראות פעילות — לחץ לבדיקה" : notifPermission === "denied" ? "התראות חסומות בדפדפן" : "הפעל התראות"}
+                onClick={async () => {
+                  if (notifPermission === "granted") {
+                    new Notification("בדיקת התראות ✓", { body: "ההתראות עובדות!", icon: "/favicon.ico" });
+                  } else if (notifPermission === "denied") {
+                    toast.error("התראות חסומות — אפשר ידנית בהגדרות הדפדפן (🔒 ליד הכתובת)");
+                  } else {
+                    const p = await Notification.requestPermission();
+                    setNotifPermission(p);
+                    if (p === "granted") new Notification("התראות הופעלו! ✓", { body: "תקבל עדכונים על הודעות חדשות", icon: "/favicon.ico" });
+                  }
+                }}
+                className={cn("shrink-0 p-1.5 rounded-lg transition-colors", {
+                  "text-[#16a34a] hover:bg-green-50": notifPermission === "granted",
+                  "text-red-400 hover:bg-red-50": notifPermission === "denied",
+                  "text-[#94a3b8] hover:bg-[#f1f5f9]": notifPermission === "default",
+                })}
+              >
+                {notifPermission === "denied" ? <BellOff className="h-4 w-4" /> : <Bell className="h-4 w-4" />}
+              </button>
             </div>
             <div className="flex gap-2">
               <button onClick={() => setShowNewChat(true)}
