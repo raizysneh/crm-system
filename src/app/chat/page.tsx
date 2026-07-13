@@ -655,33 +655,34 @@ export default function ChatPage() {
         {/* ── Sidebar ── */}
         <div className="w-72 border-l border-[#e2e8f0] bg-[#fafbfc] flex flex-col shrink-0">
           <div className="p-3 border-b border-[#f1f5f9] space-y-2 bg-white">
-            <div className="flex items-center gap-2">
-              <div className="relative flex-1">
-                <Search className="absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-[#94a3b8]" />
-                <Input placeholder="חיפוש שיחה..." value={convSearch} onChange={e => setConvSearch(e.target.value)} className="pr-9 h-8 bg-[#f8fafc]" />
-              </div>
+            <div className="relative">
+              <Search className="absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-[#94a3b8]" />
+              <Input placeholder="חיפוש שיחה..." value={convSearch} onChange={e => setConvSearch(e.target.value)} className="pr-9 h-8 bg-[#f8fafc]" />
+            </div>
+            {/* Notification permission bar */}
+            {notifPermission !== "granted" && (
               <button
-                title={notifPermission === "granted" ? "התראות פעילות — לחץ לבדיקה" : notifPermission === "denied" ? "התראות חסומות בדפדפן" : "הפעל התראות"}
-                onClick={async () => {
-                  if (notifPermission === "granted") {
-                    new Notification("בדיקת התראות ✓", { body: "ההתראות עובדות!", icon: "/favicon.ico" });
-                  } else if (notifPermission === "denied") {
-                    toast.error("התראות חסומות — אפשר ידנית בהגדרות הדפדפן (🔒 ליד הכתובת)");
+                type="button"
+                onClick={async (e) => {
+                  e.stopPropagation();
+                  if (notifPermission === "denied") {
+                    toast.error("התראות חסומות — לחצי על 🔒 ליד כתובת האתר → Notifications → Allow");
                   } else {
                     const p = await Notification.requestPermission();
                     setNotifPermission(p);
-                    if (p === "granted") new Notification("התראות הופעלו! ✓", { body: "תקבל עדכונים על הודעות חדשות", icon: "/favicon.ico" });
+                    if (p === "granted") {
+                      toast.success("התראות הופעלו!");
+                      new Notification("CRM — התראות פעילות ✓", { body: "תקבלי עדכונים על הודעות חדשות", icon: "/favicon.ico" });
+                    }
                   }
                 }}
-                className={cn("shrink-0 p-1.5 rounded-lg transition-colors", {
-                  "text-[#16a34a] hover:bg-green-50": notifPermission === "granted",
-                  "text-red-400 hover:bg-red-50": notifPermission === "denied",
-                  "text-[#94a3b8] hover:bg-[#f1f5f9]": notifPermission === "default",
-                })}
+                className="w-full flex items-center gap-2 text-xs px-2.5 py-1.5 rounded-lg border border-dashed border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100 transition-colors"
               >
-                {notifPermission === "denied" ? <BellOff className="h-4 w-4" /> : <Bell className="h-4 w-4" />}
+                {notifPermission === "denied"
+                  ? <><BellOff className="h-3.5 w-3.5 shrink-0" /> התראות חסומות — לחצי לפרטים</>
+                  : <><Bell className="h-3.5 w-3.5 shrink-0" /> הפעילי התראות דסקטופ</>}
               </button>
-            </div>
+            )}
             <div className="flex gap-2">
               <button onClick={() => setShowNewChat(true)}
                 className="flex-1 flex items-center justify-center gap-1.5 text-xs bg-[#16a34a] text-white rounded-lg py-1.5 hover:bg-[#15803d] font-medium transition-colors">
