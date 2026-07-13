@@ -92,8 +92,10 @@ export default function ChatPage() {
   const textareaRef     = useRef<HTMLTextAreaElement>(null);
   const msgSearchRef    = useRef<HTMLInputElement>(null);
   const gifFileRef      = useRef<HTMLInputElement>(null);
-  const usersRef        = useRef<User[]>([]);       // mirror of users state for realtime callbacks
-  const activeConvRef   = useRef<ChatConversation | null>(null); // mirror of activeConv
+  const usersRef        = useRef<User[]>([]);
+  const activeConvRef   = useRef<ChatConversation | null>(null);
+  const pollRef         = useRef<any>(null);
+  const lastMsgTsRef    = useRef<string>("");
 
   useEffect(() => {
     if (user) { loadConversations(); loadUsers(); }
@@ -104,6 +106,44 @@ export default function ChatPage() {
     if (activeConv) { loadMessages(activeConv.id); setupPresence(activeConv.id); }
     return () => { if (presenceChannelRef.current) supabase.removeChannel(presenceChannelRef.current); };
   }, [activeConv?.id]);
+
+  // Polling fallback — fetch new messages every 3s (covers WebSocket failures)
+  useEffect(() => {
+    if (pollRef.current) clearInterval(pollRef.current);
+    if (!activeConv || !user) return;
+
+    pollRef.current = setInterval(async () => {
+      if (!activeConvRef.current) return;
+      const since = lastMsgTsRef.current;
+      if (!since) return;
+
+      const { data } = await supabase
+        .from("chat_messages")
+        .select("*, sender:users(id, full_name, avatar_url)")
+        .eq("conversation_id", activeConvRef.current.id)
+        .gt("created_at", since)
+        .order("created_at");
+
+      if (!data?.length) return;
+      setMessages(prev => {
+        const existingIds = new Set(prev.map(m => m.id));
+        const newMsgs = data.filter((m: any) => !existingIds.has(m.id));
+        if (!newMsgs.length) return prev;
+        // Trigger desktop notification for new messages from others
+        newMsgs.forEach((m: any) => {
+          if (m.sender_id !== user.id && "Notification" in window && Notification.permission === "granted") {
+            const body = m.content?.startsWith("__IMG__") ? "📎 תמונה/GIF"
+              : m.message_type === "voice" ? "🎤 הודעה קולית" : m.content;
+            new Notification(m.sender?.full_name || "הודעה חדשה", { body, icon: "/favicon.ico", tag: m.conversation_id });
+          }
+        });
+        return [...prev, ...newMsgs];
+      });
+      lastMsgTsRef.current = data[data.length - 1].created_at;
+    }, 3000);
+
+    return () => clearInterval(pollRef.current);
+  }, [activeConv?.id, user]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -280,6 +320,9 @@ export default function ChatPage() {
       .eq("conversation_id", convId)
       .order("created_at");
     setMessages(data || []);
+    // Set last timestamp for polling
+    if (data?.length) lastMsgTsRef.current = data[data.length - 1].created_at;
+    else lastMsgTsRef.current = new Date().toISOString();
     const pinned = new Set<string>();
     (data || []).forEach((m: any) => { if (m.is_pinned) pinned.add(m.id); });
     setPinnedMessages(pinned);
@@ -407,7 +450,10 @@ export default function ChatPage() {
         reply_to: replyToId,
       }).select("*, sender:users(id, full_name, avatar_url)").single();
       // Add immediately to state — don't wait for realtime event
-      if (inserted) setMessages(prev => prev.some(m => m.id === inserted.id) ? prev : [...prev, inserted]);
+      if (inserted) {
+        setMessages(prev => prev.some(m => m.id === inserted.id) ? prev : [...prev, inserted]);
+        lastMsgTsRef.current = inserted.created_at;
+      }
       await supabase.from("chat_conversations").update({ updated_at: new Date().toISOString() }).eq("id", activeConv.id);
     } catch { toast.error("שגיאה בשליחה"); }
     finally { setSending(false); }
