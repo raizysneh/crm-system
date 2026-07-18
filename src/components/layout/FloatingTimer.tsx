@@ -145,44 +145,54 @@ export default function FloatingTimer() {
       <div className="fixed top-3 left-4 z-50" dir="rtl">
         {activeTimer ? (
           <div className={cn(
-            "rounded-2xl shadow-lg border bg-white transition-all",
+            "rounded-2xl shadow-xl border-2 bg-white transition-all min-w-[220px]",
             activeTimer.is_paused ? "border-yellow-300" : "border-[#16a34a]"
           )}>
-            <div className="flex items-center gap-2 px-3 py-2">
-              <div className={cn("w-2.5 h-2.5 rounded-full shrink-0",
+            {/* Main row */}
+            <div className="flex items-center gap-3 px-4 py-3">
+              {/* Status dot */}
+              <div className={cn("w-3 h-3 rounded-full shrink-0",
                 activeTimer.is_paused ? "bg-yellow-400" : "bg-[#16a34a] timer-pulse")} />
-              <span className={cn("font-mono text-base font-bold tabular-nums",
-                activeTimer.is_paused ? "text-yellow-600" : "text-[#16a34a]")}>
+
+              {/* Timer display */}
+              <span className={cn("font-mono text-2xl font-bold tabular-nums tracking-wide flex-1",
+                activeTimer.is_paused ? "text-yellow-500" : "text-[#16a34a]")}>
                 {formatDurationSeconds(activeTimer.elapsed_seconds)}
               </span>
-              {activeTimer.is_paused
-                ? <button onClick={resumeTimer} title="המשך"
-                    className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-green-50 text-[#16a34a]">
-                    <Play className="h-3.5 w-3.5 fill-current" />
-                  </button>
-                : <button onClick={pauseTimer} title="השהה"
-                    className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-[#f1f5f9] text-[#64748b]">
-                    <Pause className="h-3.5 w-3.5 fill-current" />
-                  </button>
-              }
-              <button onClick={handleStop} title="עצור ושמור"
-                className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-red-50 text-red-500">
-                <Square className="h-3.5 w-3.5 fill-current" />
-              </button>
-              <button onClick={() => setExpanded(e => !e)}
-                className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-[#f1f5f9] text-[#94a3b8]">
-                {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-              </button>
+
+              {/* Controls */}
+              <div className="flex items-center gap-1">
+                {activeTimer.is_paused
+                  ? <button onClick={resumeTimer} title="המשך"
+                      className="w-9 h-9 flex items-center justify-center rounded-xl bg-green-50 hover:bg-green-100 text-[#16a34a] transition-colors">
+                      <Play className="h-4 w-4 fill-current" />
+                    </button>
+                  : <button onClick={pauseTimer} title="השהה"
+                      className="w-9 h-9 flex items-center justify-center rounded-xl hover:bg-[#f1f5f9] text-[#64748b] transition-colors">
+                      <Pause className="h-4 w-4 fill-current" />
+                    </button>
+                }
+                <button onClick={handleStop} title="עצור ושמור"
+                  className="w-9 h-9 flex items-center justify-center rounded-xl hover:bg-red-50 text-red-400 transition-colors">
+                  <Square className="h-4 w-4 fill-current" />
+                </button>
+                <button onClick={() => setExpanded(e => !e)}
+                  className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-[#f1f5f9] text-[#cbd5e1] transition-colors">
+                  {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                </button>
+              </div>
             </div>
+
+            {/* Expanded info */}
             {expanded && (
-              <div className="border-t border-[#f1f5f9] px-3 py-2 bg-[#f8fafc] rounded-b-2xl">
+              <div className="border-t border-[#f1f5f9] px-4 py-2.5 bg-[#f8fafc] rounded-b-2xl space-y-0.5">
                 {activeTimer.customer_name
-                  ? <p className="text-xs font-medium text-[#374151] truncate max-w-[190px]">{activeTimer.customer_name}</p>
+                  ? <p className="text-sm font-semibold text-[#374151] truncate">{activeTimer.customer_name}</p>
                   : <p className="text-xs text-[#94a3b8] italic">ללא לקוח — ייבחר בעצירה</p>}
                 {activeTimer.task_title && (
-                  <p className="text-xs text-[#64748b] truncate max-w-[190px] mt-0.5">{activeTimer.task_title}</p>
+                  <p className="text-xs text-[#64748b] truncate">{activeTimer.task_title}</p>
                 )}
-                <p className="text-[10px] text-[#94a3b8] mt-0.5">
+                <p className="text-xs text-[#94a3b8]">
                   התחיל: {new Date(activeTimer.start_time).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })}
                 </p>
               </div>
@@ -190,7 +200,7 @@ export default function FloatingTimer() {
           </div>
         ) : (
           <button onClick={() => { setStartCustomer(""); setStartTask(""); setShowStartPopup(true); }}
-            className="flex items-center gap-2 bg-[#16a34a] hover:bg-[#15803d] text-white px-4 py-2 rounded-2xl shadow-lg font-medium text-sm transition-all hover:shadow-xl active:scale-95">
+            className="flex items-center gap-2 bg-[#16a34a] hover:bg-[#15803d] text-white px-5 py-2.5 rounded-2xl shadow-lg font-semibold text-sm transition-all hover:shadow-xl active:scale-95">
             <Timer className="h-4 w-4" />
             הפעל טיימר
           </button>
