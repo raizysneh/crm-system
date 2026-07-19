@@ -202,7 +202,7 @@ export default function FloatingTimer() {
             {/* Draggable header */}
             <div
               onMouseDown={onMouseDown}
-              className="flex items-center justify-between px-3.5 py-2.5 bg-[#0f172a] cursor-grab active:cursor-grabbing select-none"
+              className="flex items-center justify-between px-3.5 py-2.5 bg-[#16a34a] cursor-grab active:cursor-grabbing select-none"
             >
               <div className="flex items-center gap-2">
                 <div className={cn("w-2 h-2 rounded-full shrink-0", hasRunning ? "bg-[#16a34a] timer-pulse" : "bg-yellow-400")} />
