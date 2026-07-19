@@ -65,7 +65,7 @@ function isCurrent(period: Period, base: Date) {
 
 export default function TimersPage() {
   const { user } = useAuthStore();
-  const { activeTimer, startTimer } = useTimerStore();
+  const { timers, activeTimer, startTimer } = useTimerStore();
 
   const [period,    setPeriod]    = useState<Period>("week");
   const [base,      setBase]      = useState(new Date());
@@ -201,15 +201,19 @@ export default function TimersPage() {
 
       <div className="max-w-4xl mx-auto px-6 py-5 space-y-4">
 
-        {/* Active timer banner */}
-        {activeTimer && (
-          <div className="bg-[#16a34a] text-white rounded-xl px-5 py-3 flex items-center gap-3">
-            <div className="w-2.5 h-2.5 rounded-full bg-white timer-pulse" />
-            <span className="font-mono font-bold text-lg">{formatDurationSeconds(activeTimer.elapsed_seconds)}</span>
-            <span className="text-green-100 text-sm">
-              {activeTimer.customer_name||"ללא לקוח"}{activeTimer.task_title?` · ${activeTimer.task_title}`:""}
-            </span>
-            <span className="text-green-200 text-xs mr-auto">התחיל: {formatTimeOfDay(activeTimer.start_time)}</span>
+        {/* Active timers banner */}
+        {timers.length > 0 && (
+          <div className="space-y-1">
+            {timers.map(t => (
+              <div key={t.id} className={`text-white rounded-xl px-5 py-3 flex items-center gap-3 ${t.is_paused ? "bg-yellow-500" : "bg-[#16a34a]"}`}>
+                <div className={`w-2.5 h-2.5 rounded-full bg-white ${t.is_paused ? "" : "timer-pulse"}`} />
+                <span className="font-mono font-bold text-lg">{formatDurationSeconds(t.elapsed_seconds)}</span>
+                <span className="text-green-100 text-sm">
+                  {t.customer_name||"ללא לקוח"}{t.task_title?` · ${t.task_title}`:""}
+                </span>
+                <span className="text-green-200 text-xs mr-auto">התחיל: {formatTimeOfDay(t.start_time)}</span>
+              </div>
+            ))}
           </div>
         )}
 
