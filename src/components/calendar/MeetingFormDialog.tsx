@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { X, Calendar, Clock, MapPin, Link, Users, ChevronDown } from "lucide-react";
+import { X, Calendar, Clock, MapPin, Link, Users, ChevronDown, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -42,6 +42,15 @@ export default function MeetingFormDialog({ defaultDate, meeting, onClose, onSav
   const [sendToParticipants, setSendToParticipants] = useState(true);
   const [sendToClient, setSendToClient]             = useState(false);
 
+  // Recurrence
+  const [isRecurring, setIsRecurring]           = useState<boolean>(meeting?.is_recurring || false);
+  const [recurrenceType, setRecurrenceType]     = useState<string>(meeting?.recurrence_type || "weekly");
+  const [recurrenceInterval, setRecurrenceInterval] = useState<number>(meeting?.recurrence_interval || 1);
+  const [recurrenceDays, setRecurrenceDays]     = useState<string[]>(meeting?.recurrence_days || []);
+  const [recurrenceEndType, setRecurrenceEndType] = useState<string>(meeting?.recurrence_end_type || "never");
+  const [recurrenceEndDate, setRecurrenceEndDate] = useState<string>(meeting?.recurrence_end_date || "");
+  const [recurrenceEndCount, setRecurrenceEndCount] = useState<number>(meeting?.recurrence_end_count || 10);
+
   useEffect(() => {
     supabase.from("customers").select("id,company_name,email").eq("status","active")
       .then(({ data }) => setClients(data || []));
@@ -63,6 +72,16 @@ export default function MeetingFormDialog({ defaultDate, meeting, onClose, onSav
         ? clients.find(c => c.id === customerId)?.email || null
         : null;
 
+      const recurrencePayload = isRecurring ? {
+        is_recurring: true,
+        recurrence_type: recurrenceType,
+        recurrence_interval: recurrenceInterval,
+        recurrence_days: recurrenceType === "weekly" ? recurrenceDays : [],
+        recurrence_end_type: recurrenceEndType,
+        recurrence_end_date: recurrenceEndType === "date" ? (recurrenceEndDate || null) : null,
+        recurrence_end_count: recurrenceEndType === "count" ? recurrenceEndCount : null,
+      } : { is_recurring: false, recurrence_type: null, recurrence_interval: 1, recurrence_days: [], recurrence_end_type: "never", recurrence_end_date: null, recurrence_end_count: null };
+
       if (meeting) {
         const res = await fetch("/api/meetings", {
           method: "PATCH",
@@ -74,6 +93,7 @@ export default function MeetingFormDialog({ defaultDate, meeting, onClose, onSav
             participant_ids: participantIds,
             send_to_participants: sendToParticipants,
             extra_emails: clientEmail ? [clientEmail] : [],
+            ...recurrencePayload,
           }),
         });
         if (!res.ok) throw new Error((await res.json()).error);
@@ -89,6 +109,7 @@ export default function MeetingFormDialog({ defaultDate, meeting, onClose, onSav
             created_by: user?.id,
             send_to_participants: sendToParticipants,
             extra_emails: clientEmail ? [clientEmail] : [],
+            ...recurrencePayload,
           }),
         });
         if (!res.ok) throw new Error((await res.json()).error);
@@ -209,6 +230,87 @@ export default function MeetingFormDialog({ defaultDate, meeting, onClose, onSav
                   : customerId ? " (אין מייל ללקוח)" : ""}
               </span>
             </label>
+          </div>
+
+          {/* Recurrence */}
+          <div className="space-y-2 bg-[#f8fafc] rounded-xl p-3 border border-[#e2e8f0]">
+            <label className="flex items-center gap-2.5 cursor-pointer">
+              <input type="checkbox" checked={isRecurring} onChange={e => setIsRecurring(e.target.checked)}
+                className="w-4 h-4 accent-[#16a34a]" />
+              <span className="text-sm font-medium text-[#0f172a] flex items-center gap-1.5">
+                <RotateCcw className="h-4 w-4 text-[#16a34a]" /> אירוע חוזר
+              </span>
+            </label>
+            {isRecurring && (
+              <div className="space-y-3 pt-1">
+                {/* Type + Interval */}
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-[#64748b] shrink-0">חוזר כל</span>
+                  <input
+                    type="number" min={1} max={99} value={recurrenceInterval}
+                    onChange={e => setRecurrenceInterval(Math.max(1, parseInt(e.target.value) || 1))}
+                    className="w-16 h-8 border border-[#e2e8f0] rounded-lg px-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-[#16a34a] bg-white"
+                  />
+                  <select value={recurrenceType} onChange={e => setRecurrenceType(e.target.value)}
+                    className="flex-1 h-8 border border-[#e2e8f0] rounded-lg px-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#16a34a]">
+                    <option value="daily">ימים</option>
+                    <option value="weekly">שבועות</option>
+                    <option value="monthly">חודשים</option>
+                    <option value="yearly">שנים</option>
+                    <option value="custom">ימים (מותאם)</option>
+                  </select>
+                </div>
+
+                {/* Days of week (weekly only) */}
+                {recurrenceType === "weekly" && (
+                  <div className="flex gap-1.5 flex-wrap">
+                    {[["0","א׳"],["1","ב׳"],["2","ג׳"],["3","ד׳"],["4","ה׳"],["5","ו׳"],["6","ש׳"]].map(([val, label]) => (
+                      <button
+                        key={val}
+                        type="button"
+                        onClick={() => setRecurrenceDays(prev =>
+                          prev.includes(val) ? prev.filter(d => d !== val) : [...prev, val]
+                        )}
+                        className={cn(
+                          "w-9 h-9 rounded-full text-xs font-semibold border transition-colors",
+                          recurrenceDays.includes(val)
+                            ? "bg-[#16a34a] text-white border-[#16a34a]"
+                            : "bg-white text-[#374151] border-[#e2e8f0] hover:border-[#16a34a]"
+                        )}
+                      >{label}</button>
+                    ))}
+                  </div>
+                )}
+
+                {/* End condition */}
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-[#64748b]">תנאי סיום</p>
+                  <div className="flex gap-3">
+                    {[["never","ללא הגבלה"],["date","תאריך"],["count","מספר פעמים"]].map(([val, label]) => (
+                      <label key={val} className="flex items-center gap-1.5 cursor-pointer">
+                        <input type="radio" name="recEnd" value={val}
+                          checked={recurrenceEndType === val}
+                          onChange={() => setRecurrenceEndType(val)}
+                          className="accent-[#16a34a]" />
+                        <span className="text-sm text-[#374151]">{label}</span>
+                      </label>
+                    ))}
+                  </div>
+                  {recurrenceEndType === "date" && (
+                    <input type="date" value={recurrenceEndDate} onChange={e => setRecurrenceEndDate(e.target.value)}
+                      className="w-full h-9 border border-[#e2e8f0] rounded-lg px-3 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#16a34a]" />
+                  )}
+                  {recurrenceEndType === "count" && (
+                    <div className="flex items-center gap-2">
+                      <input type="number" min={1} max={999} value={recurrenceEndCount}
+                        onChange={e => setRecurrenceEndCount(Math.max(1, parseInt(e.target.value) || 1))}
+                        className="w-20 h-9 border border-[#e2e8f0] rounded-lg px-3 text-sm text-center bg-white focus:outline-none focus:ring-2 focus:ring-[#16a34a]" />
+                      <span className="text-sm text-[#64748b]">פעמים</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Notes */}

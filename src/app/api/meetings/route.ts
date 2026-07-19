@@ -107,19 +107,33 @@ export async function GET(req: NextRequest) {
     const to   = searchParams.get("to");
     const userId = searchParams.get("user_id");
 
-    let q = admin()
-      .from("meetings")
-      .select("*, customer:customers(id,company_name), participants:meeting_participants(user:users(id,full_name))")
-      .order("start_time");
+    const select = "*, customer:customers(id,company_name), participants:meeting_participants(user:users(id,full_name))";
 
+    let q = admin().from("meetings").select(select).order("start_time");
     if (from) q = q.gte("start_time", from);
     if (to)   q = q.lte("start_time", to);
 
     const { data, error } = await q;
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
+    // Also fetch recurring meetings that started before 'from' (may have future instances in range)
+    let extra: any[] = [];
+    if (from) {
+      const { data: olderRec } = await admin()
+        .from("meetings")
+        .select(select)
+        .eq("is_recurring", true)
+        .lt("start_time", from)
+        .order("start_time");
+      extra = olderRec || [];
+    }
+
+    // Merge, deduplicating by id
+    const seenIds = new Set((data || []).map((m: any) => m.id));
+    const merged = [...(data || []), ...extra.filter((m: any) => !seenIds.has(m.id))];
+
     // Filter by participant if userId supplied
-    let result = data || [];
+    let result = merged;
     if (userId) {
       result = result.filter((m: any) =>
         m.created_by === userId ||
@@ -136,7 +150,8 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { title, customer_id, start_time, end_time, location, meeting_link, notes, description, participant_ids, created_by, send_to_participants, extra_emails } = body;
+    const { title, customer_id, start_time, end_time, location, meeting_link, notes, description, participant_ids, created_by, send_to_participants, extra_emails,
+      is_recurring, recurrence_type, recurrence_interval, recurrence_days, recurrence_end_type, recurrence_end_date, recurrence_end_count } = body;
 
     const { data, error } = await admin().from("meetings").insert({
       title,
@@ -148,6 +163,13 @@ export async function POST(req: NextRequest) {
       notes: notes || null,
       description: description || null,
       created_by: created_by || null,
+      is_recurring: is_recurring || false,
+      recurrence_type: recurrence_type || null,
+      recurrence_interval: recurrence_interval || 1,
+      recurrence_days: recurrence_days || [],
+      recurrence_end_type: recurrence_end_type || "never",
+      recurrence_end_date: recurrence_end_date || null,
+      recurrence_end_count: recurrence_end_count || null,
     }).select().single();
 
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });

@@ -56,6 +56,44 @@ function timeStr(iso: string) {
   return `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
 }
 
+function generateRecurringInstances(m: any, rangeFrom: Date, rangeTo: Date): any[] {
+  if (!m.is_recurring || !m.recurrence_type) return [m];
+
+  const startDt  = new Date(m.start_time);
+  const endDt    = m.end_time ? new Date(m.end_time) : null;
+  const duration = endDt ? endDt.getTime() - startDt.getTime() : 0;
+  const interval = Math.max(1, m.recurrence_interval || 1);
+  const maxCount = m.recurrence_end_type === "count" ? Math.min(m.recurrence_end_count || 100, 500) : 500;
+  const seriesEnd = m.recurrence_end_type === "date" && m.recurrence_end_date
+    ? new Date(m.recurrence_end_date + "T23:59:59") : null;
+
+  const instances: any[] = [];
+  let current = new Date(startDt);
+  let count = 0;
+
+  while (count < maxCount && current <= rangeTo) {
+    if (seriesEnd && current > seriesEnd) break;
+    if (current >= rangeFrom) {
+      const instEnd = endDt ? new Date(current.getTime() + duration) : null;
+      instances.push({
+        ...m,
+        start_time: current.toISOString(),
+        end_time: instEnd?.toISOString() || m.end_time,
+      });
+    }
+    count++;
+    switch (m.recurrence_type) {
+      case "daily":   current.setDate(current.getDate() + interval); break;
+      case "weekly":  current.setDate(current.getDate() + 7 * interval); break;
+      case "monthly": current.setMonth(current.getMonth() + interval); break;
+      case "yearly":  current.setFullYear(current.getFullYear() + interval); break;
+      case "custom":  current.setDate(current.getDate() + interval); break;
+      default: return instances.length ? instances : [m];
+    }
+  }
+  return instances.length ? instances : [];
+}
+
 export default function CalendarPage() {
   const { user } = useAuthStore();
   const [viewMode, setViewMode]         = useState<ViewMode>("month");
@@ -128,28 +166,34 @@ export default function CalendarPage() {
         });
       });
 
-      // Meetings in range
+      // Meetings in range (+ older recurring ones from API)
       const res = await fetch(`/api/meetings?from=${from}&to=${to}`);
       const json = await res.json();
       const targetId = filterEmployee === "me" ? user.id : filterEmployee === "all" ? null : filterEmployee;
+      const rangeFromDt = new Date(from);
+      const rangeToDt   = new Date(to);
       (json.data || [])
         .filter((m: any) => {
-          if (!targetId) return true; // "all"
+          if (!targetId) return true;
           const participantIds: string[] = (m.participants || []).map((p: any) => p.user?.id).filter(Boolean);
           return m.created_by === targetId || participantIds.includes(targetId);
         })
         .forEach((m: any) => {
-          result.push({
-            id: m.id, title: m.title,
-            date: toLocalDate(m.start_time),
-            type: "meeting", color: "#3b82f6",
-            time: timeStr(m.start_time),
-            endTime: m.end_time ? timeStr(m.end_time) : undefined,
-            customer_name: m.customer?.company_name,
-            location: m.location,
-            meeting_link: m.meeting_link,
-            notes: m.notes,
-            raw: m,
+          const instances = generateRecurringInstances(m, rangeFromDt, rangeToDt);
+          instances.forEach((inst, idx) => {
+            result.push({
+              id: inst.is_recurring ? `${m.id}_${idx}` : m.id,
+              title: inst.title,
+              date: toLocalDate(inst.start_time),
+              type: "meeting", color: "#3b82f6",
+              time: timeStr(inst.start_time),
+              endTime: inst.end_time ? timeStr(inst.end_time) : undefined,
+              customer_name: inst.customer?.company_name,
+              location: inst.location,
+              meeting_link: inst.meeting_link,
+              notes: inst.notes,
+              raw: m, // always point to original for edit/delete
+            });
           });
         });
 
@@ -280,7 +324,7 @@ export default function CalendarPage() {
         onDragEnd={() => setDragEvent(null)}
         className={cn(
           "flex items-center gap-1 rounded px-1.5 py-0.5 text-white hover:opacity-90 transition-opacity cursor-grab active:cursor-grabbing",
-          compact ? "text-[9px]" : "text-[11px]"
+          compact ? "text-[11px]" : "text-[13px]"
         )}
         style={{ backgroundColor: ev.color }}
         onClick={e => { e.stopPropagation(); setSelectedDay(ev.date); }}
@@ -375,7 +419,7 @@ export default function CalendarPage() {
                 <div className="grid grid-cols-7 border-b border-[#f1f5f9] bg-gradient-to-b from-[#f8fafc] to-white">
                   {DAYS_HE.map((d, i) => (
                     <div key={d} className={cn(
-                      "text-center text-xs font-bold py-3 tracking-wide",
+                      "text-center text-sm font-bold py-3 tracking-wide",
                       i === 6 ? "text-red-400" : i === 5 ? "text-blue-400" : "text-[#64748b]"
                     )}>{d}</div>
                   ))}
@@ -390,14 +434,14 @@ export default function CalendarPage() {
                     return (
                       <DropCell key={dateStr} dateStr={dateStr}
                         className={cn(
-                          "min-h-[90px] p-1.5 border-b border-l border-[#f1f5f9] cursor-pointer transition-colors group/cell",
+                          "min-h-[100px] p-1.5 border-b border-l border-[#f1f5f9] cursor-pointer transition-colors group/cell",
                           isSelected ? "bg-[#f0fdf4]" : "hover:bg-[#f8fafc]"
                         )}
                       ><div onClick={() => setSelectedDay(dateStr)}>
                         <div className="flex items-center justify-between mb-1">
                           <div
                             className={cn(
-                              "w-6 h-6 rounded-full flex items-center justify-center text-xs font-semibold",
+                              "w-7 h-7 rounded-full flex items-center justify-center text-sm font-semibold",
                               isToday ? "bg-[#16a34a] text-white" : "text-[#374151]"
                             )}
                             onClick={e => { e.stopPropagation(); setFormDefaultDate(dateStr); setEditMeeting(null); setShowMeetingForm(true); }}
@@ -431,7 +475,7 @@ export default function CalendarPage() {
                     const day = parseInt(dateStr.split("-")[2]);
                     return (
                       <div key={dateStr} className="text-center py-3 border-l border-[#f8fafc]">
-                        <div className="text-xs text-[#64748b] mb-1">{DAYS_SHORT[i]}</div>
+                        <div className="text-sm text-[#64748b] mb-1">{DAYS_SHORT[i]}</div>
                         <div className={cn(
                           "w-8 h-8 rounded-full flex items-center justify-center mx-auto text-sm font-bold",
                           isToday ? "bg-[#16a34a] text-white" : "text-[#0f172a]"

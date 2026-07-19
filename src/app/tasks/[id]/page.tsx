@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowRight, Timer, Edit, Plus, Trash2, Check, GripVertical, Paperclip, Download, X, Upload, RotateCcw } from "lucide-react";
+import { ArrowRight, Timer, Edit, Plus, Trash2, Check, GripVertical, Paperclip, Download, X, Upload, RotateCcw, Pencil } from "lucide-react";
 import Header from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -46,6 +46,8 @@ export default function TaskDetailPage() {
   const [clients, setClients] = useState<Customer[]>([]);
   const [employees, setEmployees] = useState<User[]>([]);
   const [sendCompletionEmail, setSendCompletionEmail] = useState(true);
+  const [editingSubtaskId, setEditingSubtaskId] = useState<string | null>(null);
+  const [editingSubtaskTitle, setEditingSubtaskTitle] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { loadTask(); }, [id]);
@@ -103,6 +105,19 @@ export default function TaskDetailPage() {
     if (!res.ok) toast.error("שגיאה בהוספה");
     else { setSubtasks(prev => [...prev, json.data]); setNewSubtask(""); }
     setAddingSubtask(false);
+  };
+
+  const handleSaveSubtaskTitle = async (subtaskId: string) => {
+    const title = editingSubtaskTitle.trim();
+    setEditingSubtaskId(null);
+    if (!title) return;
+    const res = await fetch("/api/subtasks", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: subtaskId, title }),
+    });
+    if (!res.ok) toast.error("שגיאה בעדכון");
+    else setSubtasks(prev => prev.map(s => s.id === subtaskId ? { ...s, title } : s));
   };
 
   const handleDeleteSubtask = async (subtaskId: string) => {
@@ -291,9 +306,36 @@ export default function TaskDetailPage() {
                       >
                         {subtask.completed && <Check className="h-3 w-3 text-white" />}
                       </button>
-                      <span className={`flex-1 text-sm ${subtask.completed ? "line-through text-[#94a3b8]" : "text-[#374151]"}`}>
-                        {subtask.title}
-                      </span>
+                      {editingSubtaskId === subtask.id ? (
+                        <input
+                          autoFocus
+                          value={editingSubtaskTitle}
+                          onChange={e => setEditingSubtaskTitle(e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === "Enter") handleSaveSubtaskTitle(subtask.id);
+                            if (e.key === "Escape") setEditingSubtaskId(null);
+                          }}
+                          onBlur={() => handleSaveSubtaskTitle(subtask.id)}
+                          className="flex-1 text-sm border border-[#16a34a] rounded-md px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-[#16a34a]"
+                          dir="rtl"
+                        />
+                      ) : (
+                        <span
+                          className={`flex-1 text-sm ${subtask.completed ? "line-through text-[#94a3b8]" : "text-[#374151]"}`}
+                          onDoubleClick={() => { setEditingSubtaskId(subtask.id); setEditingSubtaskTitle(subtask.title); }}
+                        >
+                          {subtask.title}
+                        </span>
+                      )}
+                      {editingSubtaskId !== subtask.id && (
+                        <button
+                          onClick={() => { setEditingSubtaskId(subtask.id); setEditingSubtaskTitle(subtask.title); }}
+                          className="opacity-0 group-hover:opacity-100 text-[#94a3b8] hover:text-[#374151] transition-colors"
+                          title="ערוך"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                      )}
                       <button
                         onClick={() => handleDeleteSubtask(subtask.id)}
                         className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600"
