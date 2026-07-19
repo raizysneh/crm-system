@@ -153,7 +153,7 @@ export async function POST(req: NextRequest) {
     const { title, customer_id, start_time, end_time, location, meeting_link, notes, description, participant_ids, created_by, send_to_participants, extra_emails,
       is_recurring, recurrence_type, recurrence_interval, recurrence_days, recurrence_end_type, recurrence_end_date, recurrence_end_count } = body;
 
-    const { data, error } = await admin().from("meetings").insert({
+    const insertData: Record<string, any> = {
       title,
       customer_id: customer_id || null,
       start_time,
@@ -163,14 +163,21 @@ export async function POST(req: NextRequest) {
       notes: notes || null,
       description: description || null,
       created_by: created_by || null,
-      is_recurring: is_recurring || false,
-      recurrence_type: recurrence_type || null,
-      recurrence_interval: recurrence_interval || 1,
-      recurrence_days: recurrence_days || [],
-      recurrence_end_type: recurrence_end_type || "never",
-      recurrence_end_date: recurrence_end_date || null,
-      recurrence_end_count: recurrence_end_count || null,
-    }).select().single();
+    };
+
+    if (is_recurring) {
+      Object.assign(insertData, {
+        is_recurring: true,
+        recurrence_type: recurrence_type || null,
+        recurrence_interval: recurrence_interval || 1,
+        recurrence_days: recurrence_days || [],
+        recurrence_end_type: recurrence_end_type || "never",
+        recurrence_end_date: recurrence_end_date || null,
+        recurrence_end_count: recurrence_end_count || null,
+      });
+    }
+
+    const { data, error } = await admin().from("meetings").insert(insertData).select().single();
 
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
