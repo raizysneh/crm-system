@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
+import { getAuthedUser } from "@/lib/supabase/authServer";
 
 function admin() {
   return createClient(
@@ -12,6 +13,9 @@ function admin() {
 // GET /api/audit?page=1&limit=50&user_id=&entity_type=&from=&to=
 export async function GET(req: NextRequest) {
   try {
+    const authedUser = await getAuthedUser(req);
+    if (!authedUser || authedUser.role !== "admin") return NextResponse.json({ error: "אין הרשאה" }, { status: 403 });
+
     const { searchParams } = new URL(req.url);
     const page       = parseInt(searchParams.get("page") || "1");
     const limit      = parseInt(searchParams.get("limit") || "50");
@@ -43,14 +47,18 @@ export async function GET(req: NextRequest) {
 // POST /api/audit — log an action
 export async function POST(req: NextRequest) {
   try {
+    const authedUser = await getAuthedUser(req);
+    if (!authedUser || authedUser.role === "client") return NextResponse.json({ error: "אין הרשאה" }, { status: 403 });
+
     const body = await req.json();
-    const { user_id, action, entity_type, entity_id, old_value, new_value } = body;
-    if (!user_id || !action || !entity_type) {
+    const { action, entity_type, entity_id, old_value, new_value } = body;
+    if (!action || !entity_type) {
       return NextResponse.json({ error: "חסרים שדות חובה" }, { status: 400 });
     }
     const db = admin();
+    // Never trust a client-supplied user_id for an audit trail — use the verified caller.
     const { data, error } = await db.from("audit_logs").insert({
-      user_id, action, entity_type, entity_id: entity_id || null,
+      user_id: authedUser.id, action, entity_type, entity_id: entity_id || null,
       old_value: old_value || null, new_value: new_value || null,
     }).select().single();
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });

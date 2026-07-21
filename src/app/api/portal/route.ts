@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
+import { getAuthedUser } from "@/lib/supabase/authServer";
 
 function admin() {
   return createClient(
@@ -13,9 +14,16 @@ function admin() {
 // Returns customer + projects + tasks + progress for a client user
 export async function GET(req: NextRequest) {
   try {
+    const authedUser = await getAuthedUser(req);
+    if (!authedUser) return NextResponse.json({ error: "לא מחובר" }, { status: 401 });
+
     const { searchParams } = new URL(req.url);
     const userId = searchParams.get("user_id");
     if (!userId) return NextResponse.json({ error: "חסר user_id" }, { status: 400 });
+    // A client may only ever view their own portal; admins may preview any.
+    if (authedUser.role !== "admin" && authedUser.id !== userId) {
+      return NextResponse.json({ error: "אין הרשאה" }, { status: 403 });
+    }
 
     const db = admin();
 

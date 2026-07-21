@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
 import { sendMail } from "@/lib/mailer";
+import { getAuthedUser } from "@/lib/supabase/authServer";
 
 function getAdminClient() {
   return createClient(
@@ -10,8 +11,11 @@ function getAdminClient() {
   );
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
+    const authedUser = await getAuthedUser(req);
+    if (!authedUser) return NextResponse.json({ error: "לא מחובר" }, { status: 401 });
+
     const { data, error } = await getAdminClient().from("users").select("*").order("full_name");
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
     return NextResponse.json({ data });
@@ -22,6 +26,16 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
+    // Two legitimate callers: (1) the public self-registration form on the
+    // login page — no session yet, always creates a plain "employee" account;
+    // (2) an admin creating a user from Settings, who may pick any role.
+    // Anyone already logged in as employee/client is neither — reject.
+    const authedUser = await getAuthedUser(req);
+    if (authedUser && authedUser.role !== "admin") {
+      return NextResponse.json({ error: "אין הרשאה" }, { status: 403 });
+    }
+    const isAdminCaller = authedUser?.role === "admin";
+
     const body = await req.json();
     const { email, password, full_name, role, phone } = body;
     const admin = getAdminClient();
@@ -60,12 +74,12 @@ export async function POST(req: NextRequest) {
       authUserId = authData.user.id;
     }
 
-    // Insert into public.users
+    // Insert into public.users — only an authenticated admin may choose the role
     const { error: dbError } = await admin.from("users").insert({
       id: authUserId,
       full_name,
       email,
-      role: role || "employee",
+      role: isAdminCaller ? (role || "employee") : "employee",
       phone: phone || null,
       status: "active",
     });
@@ -77,6 +91,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Send welcome email with login credentials (non-fatal)
+    let emailError: string | null = null;
     try {
       const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
       const usedPassword = password || "Temp123456!";
@@ -105,11 +120,12 @@ export async function POST(req: NextRequest) {
             <p style="color:#94a3b8;font-size:11px;text-align:center;">מייל זה נשלח ממערכת CRM</p>
           </div>`,
       });
-    } catch (mailErr) {
+    } catch (mailErr: any) {
       console.warn("Failed to send welcome email:", mailErr);
+      emailError = mailErr?.message || "שגיאת מייל לא ידועה";
     }
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, emailError });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
@@ -117,6 +133,11 @@ export async function POST(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   try {
+    const authedUser = await getAuthedUser(req);
+    if (!authedUser || authedUser.role !== "admin") {
+      return NextResponse.json({ error: "אין הרשאה" }, { status: 403 });
+    }
+
     const body = await req.json();
     const { id, full_name, role, phone, password, send_invite, email, status } = body;
     const admin = getAdminClient();
@@ -177,9 +198,23 @@ export async function PATCH(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   try {
+    const authedUser = await getAuthedUser(req);
+    if (!authedUser || authedUser.role !== "admin") {
+      return NextResponse.json({ error: "אין הרשאה" }, { status: 403 });
+    }
+
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
+    const hard = searchParams.get("hard") === "true";
     if (!id) return NextResponse.json({ error: "חסר id" }, { status: 400 });
+
+    if (hard) {
+      // Permanent delete — removes the auth account; public.users and any
+      // owned time_entries cascade-delete with it (see schema.sql FKs).
+      const { error } = await getAdminClient().auth.admin.deleteUser(id);
+      if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+      return NextResponse.json({ ok: true });
+    }
 
     await getAdminClient().from("users").update({ status: "inactive" }).eq("id", id);
     return NextResponse.json({ ok: true });

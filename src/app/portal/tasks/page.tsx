@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useAuthStore } from "@/store/authStore";
 import { useRouter } from "next/navigation";
 import { cn, getStatusLabel, getStatusColor } from "@/lib/utils";
+import { authHeader } from "@/lib/supabase/client";
 
 export default function PortalTasksPage() {
   const { user } = useAuthStore();
@@ -23,7 +24,7 @@ export default function PortalTasksPage() {
   useEffect(() => {
     if (!user) return;
     if (user.role !== "client") { router.push("/dashboard"); return; }
-    fetch(`/api/portal?user_id=${user.id}`)
+    authHeader().then(h => fetch(`/api/portal?user_id=${user.id}`, { headers: h }))
       .then(r => r.json())
       .then(d => { setTasks(d.tasks || []); setProjects(d.projects || []); })
       .finally(() => setLoading(false));

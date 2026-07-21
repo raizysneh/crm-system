@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
+import { getAuthedUser } from "@/lib/supabase/authServer";
 
 function admin() {
   return createClient(
@@ -11,6 +12,8 @@ function admin() {
 
 export async function POST(req: NextRequest) {
   try {
+    if (!(await getAuthedUser(req))) return NextResponse.json({ error: "לא מחובר" }, { status: 401 });
+
     const form = await req.formData();
     const file = form.get("file") as File | null;
     const bucket = (form.get("bucket") as string) || "attachments";

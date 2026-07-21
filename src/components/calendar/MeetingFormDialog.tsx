@@ -5,7 +5,7 @@ import { X, Calendar, Clock, MapPin, Link, Users, ChevronDown, RotateCcw } from 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { supabase } from "@/lib/supabase/client";
+import { supabase, authHeader } from "@/lib/supabase/client";
 import { toast } from "sonner";
 import { useAuthStore } from "@/store/authStore";
 import { cn } from "@/lib/utils";
@@ -55,7 +55,7 @@ export default function MeetingFormDialog({ defaultDate, meeting, onClose, onSav
     supabase.from("customers").select("id,company_name,email").eq("status","active")
       .then(({ data }) => setClients(data || []));
     // Fetch via API (service role) to bypass RLS
-    fetch("/api/users")
+    authHeader().then(h => fetch("/api/users", { headers: h }))
       .then(r => r.json())
       .then(json => setEmployees((json.data || []).filter((u: any) => u.role !== "client" && u.status === "active")));
   }, []);
@@ -85,7 +85,7 @@ export default function MeetingFormDialog({ defaultDate, meeting, onClose, onSav
       if (meeting) {
         const res = await fetch("/api/meetings", {
           method: "PATCH",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...(await authHeader()) },
           body: JSON.stringify({
             id: meeting.id, title, customer_id: customerId || null,
             start_time: startISO, end_time: endISO,
@@ -100,7 +100,7 @@ export default function MeetingFormDialog({ defaultDate, meeting, onClose, onSav
       } else {
         const res = await fetch("/api/meetings", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...(await authHeader()) },
           body: JSON.stringify({
             title, customer_id: customerId || null,
             start_time: startISO, end_time: endISO,

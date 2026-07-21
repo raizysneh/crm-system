@@ -1,6 +1,12 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
 import { sendMail } from "@/lib/mailer";
+import { getAuthedUser } from "@/lib/supabase/authServer";
+
+async function requireStaff(req: NextRequest) {
+  const authedUser = await getAuthedUser(req);
+  return authedUser && authedUser.role !== "client" ? authedUser : null;
+}
 
 function admin() {
   return createClient(
@@ -102,6 +108,8 @@ async function sendMeetingInvite(
 
 export async function GET(req: NextRequest) {
   try {
+    if (!(await requireStaff(req))) return NextResponse.json({ error: "אין הרשאה" }, { status: 403 });
+
     const { searchParams } = new URL(req.url);
     const from = searchParams.get("from");
     const to   = searchParams.get("to");
@@ -149,6 +157,8 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    if (!(await requireStaff(req))) return NextResponse.json({ error: "אין הרשאה" }, { status: 403 });
+
     const body = await req.json();
     const { title, customer_id, start_time, end_time, location, meeting_link, notes, description, participant_ids, created_by, send_to_participants, extra_emails,
       is_recurring, recurrence_type, recurrence_interval, recurrence_days, recurrence_end_type, recurrence_end_date, recurrence_end_count } = body;
@@ -199,6 +209,8 @@ export async function POST(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   try {
+    if (!(await requireStaff(req))) return NextResponse.json({ error: "אין הרשאה" }, { status: 403 });
+
     const body = await req.json();
     const { id, participant_ids, send_to_participants, extra_emails, ...fields } = body;
     if (!id) return NextResponse.json({ error: "חסר id" }, { status: 400 });
@@ -229,6 +241,8 @@ export async function PATCH(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   try {
+    if (!(await requireStaff(req))) return NextResponse.json({ error: "אין הרשאה" }, { status: 403 });
+
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
     if (!id) return NextResponse.json({ error: "חסר id" }, { status: 400 });

@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
-import { supabase } from "@/lib/supabase/client";
+import { supabase, authHeader } from "@/lib/supabase/client";
 import { useAuthStore } from "@/store/authStore";
 import { useTimerStore } from "@/store/timerStore";
 import { toast } from "sonner";
@@ -96,6 +96,31 @@ const PDF_STYLE = `
   @media print{@page{margin:18mm;size:A4}body{padding:0}tr{page-break-inside:avoid}}
 `;
 
+// ── Customer dot color ─────────────────────────────────────────────────────
+
+const DOT_COLORS = ["#ef4444","#f97316","#eab308","#22c55e","#06b6d4","#3b82f6","#8b5cf6","#ec4899","#14b8a6","#f43f5e"];
+function customerDotColor(name: string) {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = name.charCodeAt(i) + ((h << 5) - h);
+  return DOT_COLORS[Math.abs(h) % DOT_COLORS.length];
+}
+
+// ── EntryRow header ────────────────────────────────────────────────────────
+
+export function EntryRowHeader({ isAdmin }: { isAdmin: boolean }) {
+  return (
+    <div className="grid px-5 py-2.5 text-sm font-semibold text-[#94a3b8] bg-[#f8fafc] border-b border-[#f1f5f9]"
+      style={{ gridTemplateColumns: "2fr 2fr 80px 80px 100px 40px" }}>
+      <span>לקוח{isAdmin ? " / עובד" : ""}</span>
+      <span>הערות</span>
+      <span dir="ltr" className="text-center">התחלה</span>
+      <span dir="ltr" className="text-center">סיום</span>
+      <span dir="ltr" className="text-center">משך</span>
+      <span />
+    </div>
+  );
+}
+
 // ── EntryRow — inline-editable row ─────────────────────────────────────────
 
 function EntryRow({ entry, clients, isAdmin, onRefresh, onContinue }: {
@@ -132,40 +157,82 @@ function EntryRow({ entry, clients, isAdmin, onRefresh, onContinue }: {
     mark();
   };
 
-  const handleRowBlur = (e:React.FocusEvent<HTMLDivElement>) => {
+  const handleRowBlur = async (e:React.FocusEvent<HTMLDivElement>) => {
     if (e.currentTarget.contains(e.relatedTarget as Node)) return;
     if (!dirty.current) return;
     dirty.current = false;
     const startISO = applyTimeToISO(entry.start_time, startVal);
     const endISO   = endVal ? applyTimeToISO(entry.end_time||entry.start_time, endVal) : null;
-    fetch("/api/time-entries",{method:"PATCH",headers:{"Content-Type":"application/json"},
+    const headers = { "Content-Type": "application/json", ...(await authHeader()) };
+    fetch("/api/time-entries",{method:"PATCH",headers,
       body:JSON.stringify({id:entry.id,customer_id:custId||null,task_id:entry.task_id,
         notes,start_time:startISO,end_time:endISO,duration:parseDurInput(durVal)})
     }).then(r=>{ if(!r.ok)toast.error("שגיאה בשמירה"); else onRefresh(); });
   };
 
-  const f = "bg-transparent border border-transparent rounded px-1 py-0.5 focus:bg-white focus:border-[#e2e8f0] focus:outline-none focus:ring-1 focus:ring-[#16a34a] hover:border-[#e2e8f0] transition-colors text-sm w-full";
+  const dotColor = customerDotColor(entry.customer?.company_name || "ללא לקוח");
+  const fi = "bg-transparent border border-transparent rounded px-1.5 py-1 focus:bg-white focus:border-[#e2e8f0] focus:outline-none hover:border-[#e2e8f0] transition-colors w-full";
+
   return (
-    <div className="grid items-center px-5 py-2 hover:bg-[#fafafa] group gap-2"
-      style={{gridTemplateColumns:"1fr 80px 80px 80px 1fr 60px"}}
-      onBlur={handleRowBlur}>
-      <input value={notes} onChange={e=>{setNotes(e.target.value);mark();}} placeholder="ללא תיאור" className={cn(f,"text-[#374151]")} />
-      <input type="time" value={startVal} onChange={e=>onStartChange(e.target.value)} className={cn(f,"font-mono text-xs w-[72px]")} dir="ltr" />
-      <input type="time" value={endVal} onChange={e=>onEndChange(e.target.value)} placeholder="--:--" className={cn(f,"font-mono text-xs w-[72px]")} dir="ltr" />
-      <input value={durVal} onChange={e=>onDurChange(e.target.value)} onBlur={()=>setDurVal(secsToInput(parseDurInput(durVal)))}
-        className={cn(f,"font-mono text-sm font-semibold text-[#16a34a] w-[72px]")} dir="ltr" title="MM:SS או H:MM:SS" />
-      <div className="flex items-center gap-1 min-w-0">
-        {isAdmin && (
-          <select value={custId} onChange={e=>{setCustId(e.target.value);mark();}}
-            className="bg-transparent border border-transparent rounded px-1 py-0.5 text-xs text-[#94a3b8] focus:bg-white focus:border-[#e2e8f0] focus:outline-none hover:border-[#e2e8f0] transition-colors max-w-[130px]">
-            <option value="">ללא לקוח</option>
-            {clients.map(c=><option key={c.id} value={c.id}>{c.company_name}</option>)}
-          </select>
-        )}
-        {entry.user && <span className="text-xs text-[#94a3b8] truncate">{entry.user.full_name}</span>}
+    <div
+      className="grid items-center px-5 py-4 hover:bg-[#f8fffe] group gap-3 border-b border-[#f1f5f9] last:border-0"
+      style={{ gridTemplateColumns: "2fr 2fr 80px 80px 100px 40px" }}
+      onBlur={handleRowBlur}
+    >
+      {/* Customer + employee */}
+      <div className="flex items-center gap-3 min-w-0">
+        <span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: dotColor }} />
+        <div className="min-w-0 flex-1">
+          {isAdmin ? (
+            <select value={custId} onChange={e=>{setCustId(e.target.value);mark();}}
+              className="w-full bg-transparent text-base font-semibold text-[#0f172a] border border-transparent rounded px-1 hover:border-[#e2e8f0] focus:border-[#e2e8f0] focus:outline-none focus:bg-white transition-colors truncate">
+              <option value="">ללא לקוח</option>
+              {clients.map(c=><option key={c.id} value={c.id}>{c.company_name}</option>)}
+            </select>
+          ) : (
+            <p className="text-base font-semibold text-[#0f172a] truncate">
+              {entry.customer?.company_name || "ללא לקוח"}
+            </p>
+          )}
+          {entry.user && (
+            <p className="text-sm text-[#94a3b8] truncate leading-none mt-0.5">{entry.user.full_name}</p>
+          )}
+        </div>
       </div>
+
+      {/* Notes */}
+      <input
+        value={notes} onChange={e=>{setNotes(e.target.value);mark();}}
+        placeholder="ללא הערות"
+        className={cn(fi, "text-base text-[#64748b]")}
+      />
+
+      {/* Start */}
+      <input
+        type="time" value={startVal} onChange={e=>onStartChange(e.target.value)}
+        className={cn(fi, "font-mono text-base text-[#374151] text-center")}
+        dir="ltr"
+      />
+
+      {/* End */}
+      <input
+        type="time" value={endVal} onChange={e=>onEndChange(e.target.value)}
+        placeholder="--:--"
+        className={cn(fi, "font-mono text-base text-[#374151] text-center")}
+        dir="ltr"
+      />
+
+      {/* Duration */}
+      <input
+        value={durVal} onChange={e=>onDurChange(e.target.value)}
+        onBlur={()=>setDurVal(secsToInput(parseDurInput(durVal)))}
+        className={cn(fi, "font-mono text-base font-bold text-[#16a34a] text-center")}
+        dir="ltr" title="MM:SS או H:MM:SS"
+      />
+
+      {/* Continue */}
       <button onClick={()=>onContinue(entry)} title="המשך טיימר"
-        className="opacity-0 group-hover:opacity-100 p-1.5 rounded hover:bg-green-50 text-[#16a34a] transition-opacity flex items-center justify-center">
+        className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg hover:bg-green-50 text-[#16a34a] transition-opacity flex items-center justify-center">
         <Play className="h-3.5 w-3.5 fill-current" />
       </button>
     </div>
@@ -212,17 +279,29 @@ export default function ReportsPage() {
       const fromISO = new Date(dateFrom+"T00:00:00").toISOString();
       const toISO   = new Date(dateTo  +"T23:59:59").toISOString();
       const params  = new URLSearchParams({from:fromISO,to:toISO,role:user.role});
+      // For employees: always filter to their own entries
       if(user.role==="employee") params.set("user_id",user.id);
-      else if(filterEmployee!=="all") params.set("user_id",filterEmployee);
+      // For admin: pass user_id when filtering by specific employee
+      else if(user.role==="admin" && filterEmployee!=="all") params.set("user_id",filterEmployee);
       if(filterClient!=="all") params.set("customer_id",filterClient);
 
       const [er,cr,ur] = await Promise.all([
-        fetch(`/api/time-entries?${params}`).then(r=>r.json()),
+        authHeader().then(h=>fetch(`/api/time-entries?${params}`,{headers:h})).then(r=>r.json()),
         supabase.from("customers").select("id,company_name").eq("status","active"),
         user.role==="admin" ? supabase.from("users").select("id,full_name").neq("role","client") : Promise.resolve({data:[]}),
       ]);
       if(er.error){ toast.error(`שגיאת דוחות: ${er.error}`); setEntries([]); }
-      else setEntries(er.data||[]);
+      else {
+        let rows: Entry[] = er.data || [];
+        // Safety net: client-side filter by user_id (direct UUID on the entry, always reliable)
+        if (user.role === "admin" && filterEmployee !== "all") {
+          rows = rows.filter(e => e.user_id === filterEmployee);
+        }
+        if (filterClient !== "all") {
+          rows = rows.filter(e => e.customer_id === filterClient);
+        }
+        setEntries(rows);
+      }
       setClients(cr.data||[]);
       setEmployees(ur.data||[]);
     } catch(e:any){ toast.error(`שגיאה: ${e.message}`); }
@@ -492,14 +571,16 @@ export default function ReportsPage() {
                 </SelectContent>
               </Select>
             </>)}
-            {/* Employee toggle */}
-            <label className="flex items-center gap-2 cursor-pointer select-none">
-              <div onClick={()=>setIncludeEmployee(v=>!v)}
-                className={cn("w-8 h-4 rounded-full transition-colors relative shrink-0",includeEmployee?"bg-[#16a34a]":"bg-[#cbd5e1]")}>
-                <div className={cn("absolute top-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform",includeEmployee?"translate-x-0.5":"translate-x-4")} />
-              </div>
-              <span className="text-sm text-[#64748b] whitespace-nowrap">שם עובד בדוח</span>
-            </label>
+            {/* Employee toggle — admin only */}
+            {user?.role==="admin" && (
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <div onClick={()=>setIncludeEmployee(v=>!v)}
+                  className={cn("w-8 h-4 rounded-full transition-colors relative shrink-0",includeEmployee?"bg-[#16a34a]":"bg-[#cbd5e1]")}>
+                  <div className={cn("absolute top-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform",includeEmployee?"translate-x-0.5":"translate-x-4")} />
+                </div>
+                <span className="text-sm text-[#64748b] whitespace-nowrap">שם עובד בדוח</span>
+              </label>
+            )}
             {/* Export */}
             <div className="relative">
               <button onClick={()=>setExportOpen(o=>!o)}
@@ -601,18 +682,12 @@ export default function ReportsPage() {
 
                           {/* Individual entries — on expand */}
                           {isOpen && (
-                            <div className="bg-[#fafafa] border-t border-[#f1f5f9]">
-                              <div className="grid px-5 py-1.5 text-xs font-medium text-[#94a3b8]"
-                                style={{gridTemplateColumns:"1fr 80px 80px 80px 1fr 60px"}}>
-                                <span>הערות</span><span>התחלה</span><span>סיום</span><span>משך</span>
-                                <span>{user?.role==="admin"?"לקוח / עובד":"עובד"}</span><span/>
-                              </div>
-                              <div className="divide-y divide-[#f1f5f9]">
-                                {cpg.entries.map(entry=>(
-                                  <EntryRow key={entry.id} entry={entry} clients={clients}
-                                    isAdmin={user?.role==="admin"} onRefresh={loadData} onContinue={handleContinue} />
-                                ))}
-                              </div>
+                            <div className="border-t border-[#f1f5f9]">
+                              <EntryRowHeader isAdmin={user?.role==="admin"} />
+                              {cpg.entries.map(entry=>(
+                                <EntryRow key={entry.id} entry={entry} clients={clients}
+                                  isAdmin={user?.role==="admin"} onRefresh={loadData} onContinue={handleContinue} />
+                              ))}
                             </div>
                           )}
                         </div>

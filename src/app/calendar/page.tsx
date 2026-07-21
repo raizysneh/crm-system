@@ -9,7 +9,7 @@ import {
 import Header from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { supabase } from "@/lib/supabase/client";
+import { supabase, authHeader } from "@/lib/supabase/client";
 import { useAuthStore } from "@/store/authStore";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -167,7 +167,7 @@ export default function CalendarPage() {
       });
 
       // Meetings in range (+ older recurring ones from API)
-      const res = await fetch(`/api/meetings?from=${from}&to=${to}`);
+      const res = await fetch(`/api/meetings?from=${from}&to=${to}`, { headers: await authHeader() });
       const json = await res.json();
       const targetId = filterEmployee === "me" ? user.id : filterEmployee === "all" ? null : filterEmployee;
       const rangeFromDt = new Date(from);
@@ -216,7 +216,7 @@ export default function CalendarPage() {
       const newStart = new Date(oldStart); newStart.setFullYear(y,mo-1,d);
       const newEnd   = oldEnd ? new Date(newStart.getTime() + diff) : null;
       await fetch("/api/meetings", {
-        method: "PATCH", headers: { "Content-Type": "application/json" },
+        method: "PATCH", headers: { "Content-Type": "application/json", ...(await authHeader()) },
         body: JSON.stringify({ id: m.id, start_time: newStart.toISOString(), end_time: newEnd?.toISOString() }),
       });
       toast.success("הפגישה הועברה");
@@ -224,7 +224,7 @@ export default function CalendarPage() {
     } else {
       // For tasks — update due_date
       await fetch("/api/tasks", {
-        method: "PATCH", headers: { "Content-Type": "application/json" },
+        method: "PATCH", headers: { "Content-Type": "application/json", ...(await authHeader()) },
         body: JSON.stringify({ id: dragEvent.id, due_date: newDate }),
       });
       toast.success("תאריך המשימה עודכן");
@@ -235,7 +235,7 @@ export default function CalendarPage() {
 
   const handleDeleteMeeting = async (id: string) => {
     if (!confirm("למחוק פגישה זו?")) return;
-    const res = await fetch(`/api/meetings?id=${id}`, { method: "DELETE" });
+    const res = await fetch(`/api/meetings?id=${id}`, { method: "DELETE", headers: await authHeader() });
     if (res.ok) { toast.success("הפגישה נמחקה"); loadEvents(); }
     else toast.error("שגיאה במחיקה");
   };

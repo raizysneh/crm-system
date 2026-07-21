@@ -6,7 +6,7 @@ import Header from "@/components/layout/Header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { supabase } from "@/lib/supabase/client";
+import { supabase, authHeader } from "@/lib/supabase/client";
 import { useAuthStore } from "@/store/authStore";
 import { useRouter } from "next/navigation";
 import { formatDate } from "@/lib/utils";
@@ -39,7 +39,7 @@ export default function PortalDocumentsPage() {
     if (user.role !== "client") { router.push("/dashboard"); return; }
 
     // Get customer context
-    fetch(`/api/portal?user_id=${user.id}`)
+    authHeader().then(h => fetch(`/api/portal?user_id=${user.id}`, { headers: h }))
       .then(r => r.json())
       .then(d => {
         const cid = d.customer?.id || null;

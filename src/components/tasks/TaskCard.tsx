@@ -9,7 +9,7 @@ import { Progress } from "@/components/ui/progress";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { cn, getStatusLabel, getStatusColor, getPriorityColor, isOverdue } from "@/lib/utils";
 import { useTimerStore } from "@/store/timerStore";
-import { supabase } from "@/lib/supabase/client";
+import { supabase, authHeader } from "@/lib/supabase/client";
 import { toast } from "sonner";
 import { useAuthStore } from "@/store/authStore";
 
@@ -46,7 +46,7 @@ export default function TaskCard({ task, onStatusChange, onRefresh, onEdit }: Pr
 
   const handleDelete = async () => {
     if (!confirm("למחוק משימה זו לצמיתות?")) return;
-    const res = await fetch(`/api/tasks?id=${task.id}`, { method: "DELETE" });
+    const res = await fetch(`/api/tasks?id=${task.id}`, { method: "DELETE", headers: await authHeader() });
     if (!res.ok) toast.error("שגיאה במחיקה");
     else { toast.success("המשימה נמחקה"); onRefresh(); }
   };

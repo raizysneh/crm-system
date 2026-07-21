@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
 import { sendMail } from "@/lib/mailer";
+import { getAuthedUser } from "@/lib/supabase/authServer";
 
 function admin() {
   return createClient(
@@ -12,6 +13,9 @@ function admin() {
 
 export async function POST(req: NextRequest) {
   try {
+    const authedUser = await getAuthedUser(req);
+    if (!authedUser || authedUser.role === "client") return NextResponse.json({ error: "אין הרשאה" }, { status: 403 });
+
     const { task_id } = await req.json();
     if (!task_id) return NextResponse.json({ error: "חסר task_id" }, { status: 400 });
 

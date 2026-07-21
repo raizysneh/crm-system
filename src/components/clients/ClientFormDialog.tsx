@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { supabase } from "@/lib/supabase/client";
+import { supabase, authHeader } from "@/lib/supabase/client";
 import { Customer } from "@/types";
 import { toast } from "sonner";
 
@@ -73,7 +73,7 @@ export default function ClientFormDialog({ client, onClose, onSave }: Props) {
       if (client?.id) {
         const res = await fetch("/api/customers", {
           method: "PATCH",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...(await authHeader()) },
           body: JSON.stringify({ id: client.id, ...customerData, phones }),
         });
         const json = await res.json();
@@ -81,7 +81,7 @@ export default function ClientFormDialog({ client, onClose, onSave }: Props) {
       } else {
         const res = await fetch("/api/customers", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...(await authHeader()) },
           body: JSON.stringify({ ...customerData, phones }),
         });
         const json = await res.json();

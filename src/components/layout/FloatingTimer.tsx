@@ -1,10 +1,10 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Play, Pause, Square, Timer, Plus, X, Minus, ExternalLink, Search } from "lucide-react";
-import { useTimerStore, ActiveTimer } from "@/store/timerStore";
+import { Play, Pause, Square, Timer, Plus, X, Minus, ExternalLink, PictureInPicture } from "lucide-react";
+import { useTimerStore, ActiveTimer, getTimerDisplaySeconds } from "@/store/timerStore";
 import { useAuthStore } from "@/store/authStore";
-import { supabase } from "@/lib/supabase/client";
+import { supabase, authHeader } from "@/lib/supabase/client";
 import { formatDurationSeconds, cn } from "@/lib/utils";
 import { toast } from "sonner";
 import Link from "next/link";
@@ -18,16 +18,21 @@ async function saveTimeEntry(params: {
 }): Promise<string | null> {
   const { userId, snapshot, customer_id, task_id, notes } = params;
   try {
+    const duration = snapshot.elapsed_seconds;
+    // end_time derived from start + duration so start/end/duration are always consistent,
+    // regardless of how long the stop-dialog was open before the user clicked save.
+    const endTime = new Date(new Date(snapshot.start_time).getTime() + duration * 1000);
+    const headers = { "Content-Type": "application/json", ...(await authHeader()) };
     const res = await fetch("/api/time-entries", {
-      method: "POST", headers: { "Content-Type": "application/json" },
+      method: "POST", headers,
       body: JSON.stringify({
         user_id: userId,
         customer_id: customer_id || snapshot.customer_id || null,
         task_id: task_id || snapshot.task_id || null,
         project_id: snapshot.project_id || null,
         start_time: snapshot.start_time,
-        end_time: new Date().toISOString(),
-        duration: snapshot.elapsed_seconds,
+        end_time: endTime.toISOString(),
+        duration,
         notes: notes || "",
       }),
     });
@@ -75,13 +80,12 @@ export default function FloatingTimer() {
   const [addTask, setAddTask]     = useState("");
   const [saving, setSaving]       = useState(false);
 
-  // Tick
-  const hasRunning = timers.some(t => !t.is_paused);
+  // Local clock — re-renders every second so wall-clock display stays accurate
+  const [, setTick] = useState(0);
   useEffect(() => {
-    if (!hasRunning) return;
-    const id = setInterval(() => useTimerStore.getState().tick(), 1000);
+    const id = setInterval(() => setTick(n => n + 1), 1000);
     return () => clearInterval(id);
-  }, [hasRunning]);
+  }, []);
 
   // Load all customers once on mount
   useEffect(() => {
@@ -150,7 +154,41 @@ export default function FloatingTimer() {
     setAddTask("");
   };
 
-  const totalSeconds = timers.reduce((s, t) => s + t.elapsed_seconds, 0);
+  const totalSeconds = timers.reduce((s, t) => s + getTimerDisplaySeconds(t), 0);
+
+  const openPiP = async () => {
+    if (!("documentPictureInPicture" in window)) {
+      toast.error("Picture-in-Picture דורש Chrome 116+ — נסי לעדכן את הדפדפן");
+      return;
+    }
+    try {
+      const pip = await (window as any).documentPictureInPicture.requestWindow({ width: 260, height: 60 + timers.length * 90 });
+      pip.document.documentElement.dir = "rtl";
+      pip.document.head.innerHTML = `<style>
+        *{box-sizing:border-box;margin:0;padding:0}
+        body{background:#0f172a;font-family:sans-serif;padding:12px;color:white;overflow:hidden}
+        .row{padding:8px 0;border-bottom:1px solid #1e293b}
+        .row:last-child{border:0}
+        .name{font-size:12px;color:#94a3b8;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        .time{font-size:30px;font-weight:700;font-family:monospace;letter-spacing:1px}
+        .green{color:#22c55e} .yellow{color:#eab308}
+        .total{font-size:11px;color:#64748b;padding-top:6px;text-align:center}
+      </style>`;
+      const render = () => {
+        const store = useTimerStore.getState();
+        if (!store.timers.length) { pip.document.body.innerHTML = '<div style="color:#64748b;text-align:center;padding:20px 0">אין טיימרים פעילים</div>'; return; }
+        pip.document.body.innerHTML = store.timers.map(t => {
+          const s = getTimerDisplaySeconds(t);
+          const hh = Math.floor(s/3600), mm = Math.floor((s%3600)/60), ss = s%60;
+          const str = hh > 0 ? `${hh}:${String(mm).padStart(2,"0")}:${String(ss).padStart(2,"0")}` : `${String(mm).padStart(2,"0")}:${String(ss).padStart(2,"0")}`;
+          return `<div class="row"><div class="name">${t.customer_name||"ללא לקוח"}</div><div class="time ${t.is_paused?"yellow":"green"}">${str}</div></div>`;
+        }).join("") + (store.timers.length>1 ? `<div class="total">סה"כ: ${formatDurationSeconds(store.timers.reduce((a,t)=>a+getTimerDisplaySeconds(t),0))}</div>` : "");
+      };
+      render();
+      const iv = setInterval(render, 1000);
+      pip.addEventListener("pagehide", () => clearInterval(iv));
+    } catch(e:any) { toast.error(`שגיאת PiP: ${e.message}`); }
+  };
 
   // ── No timers ────────────────────────────────────────────────────────────────
   if (timers.length === 0 && !showAdd) {
@@ -209,6 +247,10 @@ export default function FloatingTimer() {
                 <span className="text-white text-sm font-bold">טיימרים פעילים ({timers.length})</span>
               </div>
               <div className="flex items-center gap-0.5">
+                <button onClick={openPiP} title="צף מעל כל הכרטיסיות (PiP)"
+                  className="w-6 h-6 flex items-center justify-center rounded-lg hover:bg-white/10 text-white/50 hover:text-white transition-colors">
+                  <PictureInPicture className="h-3.5 w-3.5" />
+                </button>
                 <Link href="/timers" title="עמוד טיימרים"
                   className="w-6 h-6 flex items-center justify-center rounded-lg hover:bg-white/10 text-white/50 hover:text-white transition-colors">
                   <ExternalLink className="h-3.5 w-3.5" />
@@ -252,7 +294,7 @@ export default function FloatingTimer() {
                       )}
                       <span className={cn("font-mono text-xl font-bold tabular-nums mt-1 block",
                         timer.is_paused ? "text-yellow-500" : "text-[#16a34a]")}>
-                        {formatDurationSeconds(timer.elapsed_seconds)}
+                        {formatDurationSeconds(getTimerDisplaySeconds(timer))}
                       </span>
                     </div>
                     <div className={cn("w-2.5 h-2.5 rounded-full mt-1 shrink-0",

@@ -10,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { supabase } from "@/lib/supabase/client";
+import { supabase, authHeader } from "@/lib/supabase/client";
 import { User as UserType } from "@/types";
 import { toast } from "sonner";
 import { useAuthStore } from "@/store/authStore";
@@ -31,7 +31,7 @@ export default function SettingsPage() {
   }, []);
 
   const loadUsers = async () => {
-    const res = await fetch("/api/users");
+    const res = await fetch("/api/users", { headers: await authHeader() });
     const json = await res.json();
     setUsers(json.data || []);
   };
@@ -63,7 +63,7 @@ export default function SettingsPage() {
     const newStatus = u.status === "active" ? "inactive" : "active";
     const res = await fetch("/api/users", {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...(await authHeader()) },
       body: JSON.stringify({ id: u.id, full_name: u.full_name, role: u.role, phone: u.phone, status: newStatus }),
     });
     if (!res.ok) toast.error("שגיאה בעדכון");
@@ -72,9 +72,16 @@ export default function SettingsPage() {
 
   const handleDeleteUser = async (id: string) => {
     if (!confirm("למחוק משתמש זה?")) return;
-    const res = await fetch(`/api/users?id=${id}`, { method: "DELETE" });
+    const res = await fetch(`/api/users?id=${id}`, { method: "DELETE", headers: await authHeader() });
     if (!res.ok) toast.error("שגיאה");
     else { toast.success("המשתמש הושבת"); loadUsers(); }
+  };
+
+  const handleHardDeleteUser = async (u: UserType) => {
+    if (!confirm(`למחוק את ${u.full_name} לצמיתות? לא ניתן לשחזר, וכל רישומי הזמן שלו יימחקו איתו.`)) return;
+    const res = await fetch(`/api/users?id=${u.id}&hard=true`, { method: "DELETE", headers: await authHeader() });
+    if (!res.ok) { const j = await res.json(); toast.error(j.error || "שגיאה במחיקה"); }
+    else { toast.success("המשתמש נמחק לצמיתות"); loadUsers(); }
   };
 
   const handleTestEmail = async () => {
@@ -83,7 +90,7 @@ export default function SettingsPage() {
     try {
       const res = await fetch("/api/send-email", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(await authHeader()) },
         body: JSON.stringify({
           to: user.email,
           subject: "בדיקת מייל — מערכת CRM",
@@ -100,7 +107,7 @@ export default function SettingsPage() {
   const handleSendInvite = async (u: UserType) => {
     const res = await fetch("/api/users", {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...(await authHeader()) },
       body: JSON.stringify({ send_invite: true, email: u.email }),
     });
     if (!res.ok) {
@@ -181,8 +188,13 @@ export default function SettingsPage() {
                           <button onClick={() => handleToggleUser(u)} className={`p-1.5 rounded-md hover:bg-[#f1f5f9] ${u.status === "active" ? "text-yellow-500" : "text-green-500"}`}>
                             <Shield className="h-4 w-4" />
                           </button>
-                          {u.id !== user?.id && (
-                            <button onClick={() => handleDeleteUser(u.id)} className="p-1.5 rounded-md hover:bg-red-50 text-red-400">
+                          {u.id !== user?.id && u.status === "active" && (
+                            <button onClick={() => handleDeleteUser(u.id)} title="השבת" className="p-1.5 rounded-md hover:bg-red-50 text-red-400">
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          )}
+                          {u.id !== user?.id && u.status === "inactive" && (
+                            <button onClick={() => handleHardDeleteUser(u)} title="מחק לצמיתות" className="p-1.5 rounded-md hover:bg-red-100 text-red-600">
                               <Trash2 className="h-4 w-4" />
                             </button>
                           )}

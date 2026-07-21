@@ -6,7 +6,7 @@ import Header from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { supabase } from "@/lib/supabase/client";
+import { supabase, authHeader } from "@/lib/supabase/client";
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 import { Task, Customer, User } from "@/types";
 import { useAuthStore } from "@/store/authStore";
@@ -77,11 +77,12 @@ export default function TasksPage() {
       archiveParams.set("status", "completed");
       archiveParams.delete("exclude_completed");
 
+      const h = await authHeader();
       const [tasksRes, clientsRes, usersRes, archiveRes] = await Promise.all([
-        fetch(`/api/tasks?${params}`).then(r => r.json()),
+        fetch(`/api/tasks?${params}`, { headers: h }).then(r => r.json()),
         supabase.from("customers").select("id, company_name").eq("status", "active"),
         supabase.from("users").select("id, full_name").in("role", ["admin","employee"]).eq("status", "active"),
-        fetch(`/api/tasks?${archiveParams}`).then(r => r.json()),
+        fetch(`/api/tasks?${archiveParams}`, { headers: h }).then(r => r.json()),
       ]);
 
       if (tasksRes.error) throw new Error(tasksRes.error);
@@ -114,7 +115,7 @@ export default function TasksPage() {
   const handleStatusChange = async (taskId: string, status: string) => {
     const res = await fetch("/api/tasks", {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...(await authHeader()) },
       body: JSON.stringify({ id: taskId, status }),
     });
     if (!res.ok) toast.error("שגיאה בעדכון סטטוס");
@@ -131,7 +132,7 @@ export default function TasksPage() {
   const pendingDeletion = tasks.filter(t => t.pending_deletion);
 
   const handleApproveDeletion = async (taskId: string) => {
-    const res = await fetch(`/api/tasks?id=${taskId}`, { method: "DELETE" });
+    const res = await fetch(`/api/tasks?id=${taskId}`, { method: "DELETE", headers: await authHeader() });
     if (!res.ok) {
       toast.error("שגיאה במחיקה");
       return;
@@ -143,7 +144,7 @@ export default function TasksPage() {
   const handleRejectDeletion = async (taskId: string) => {
     await fetch("/api/tasks", {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...(await authHeader()) },
       body: JSON.stringify({ id: taskId, pending_deletion: false }),
     });
     toast.success("בקשת המחיקה נדחתה");

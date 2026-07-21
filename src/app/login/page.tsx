@@ -90,7 +90,7 @@ export default function LoginPage() {
       const res = await fetch("/api/disable-mfa", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: mfaEmail }),
+        body: JSON.stringify({ email: mfaEmail, password: mfaPassword }),
       });
       const json = await res.json();
       if (!res.ok) {

@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
+import { getAuthedUser } from "@/lib/supabase/authServer";
 
 function admin() {
   return createClient(
@@ -9,8 +10,16 @@ function admin() {
   );
 }
 
+async function requireAdmin(req: NextRequest) {
+  const authedUser = await getAuthedUser(req);
+  if (!authedUser || authedUser.role !== "admin") return null;
+  return authedUser;
+}
+
 export async function POST(req: NextRequest) {
   try {
+    if (!(await requireAdmin(req))) return NextResponse.json({ error: "אין הרשאה" }, { status: 403 });
+
     const body = await req.json();
     const { phones, ...customerData } = body;
 
@@ -39,6 +48,8 @@ export async function POST(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   try {
+    if (!(await requireAdmin(req))) return NextResponse.json({ error: "אין הרשאה" }, { status: 403 });
+
     const body = await req.json();
     const { id, phones, ...customerData } = body;
     if (!id) return NextResponse.json({ error: "חסר id" }, { status: 400 });
@@ -65,6 +76,8 @@ export async function PATCH(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   try {
+    if (!(await requireAdmin(req))) return NextResponse.json({ error: "אין הרשאה" }, { status: 403 });
+
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
     if (!id) return NextResponse.json({ error: "חסר id" }, { status: 400 });

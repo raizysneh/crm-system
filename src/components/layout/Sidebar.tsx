@@ -59,6 +59,7 @@ const employeeGroups: NavGroup[] = [
       { href: "/tasks",      icon: CheckSquare,     label: "המשימות שלי" },
       { href: "/timers",     icon: Timer,           label: "טיימרים" },
       { href: "/attendance", icon: Clock,           label: "נוכחות" },
+      { href: "/reports",    icon: BarChart3,       label: "הדוחות שלי" },
     ],
   },
   {

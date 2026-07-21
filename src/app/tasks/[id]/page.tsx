@@ -10,7 +10,7 @@ import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { supabase } from "@/lib/supabase/client";
+import { supabase, authHeader } from "@/lib/supabase/client";
 import { Task, Subtask, TimeEntry, Customer, User } from "@/types";
 import { useAuthStore } from "@/store/authStore";
 import { toast } from "sonner";
@@ -82,7 +82,7 @@ export default function TaskDetailPage() {
   const handleToggleSubtask = async (subtask: Subtask) => {
     const res = await fetch("/api/subtasks", {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...(await authHeader()) },
       body: JSON.stringify({
         id: subtask.id,
         completed: !subtask.completed,
@@ -98,7 +98,7 @@ export default function TaskDetailPage() {
     setAddingSubtask(true);
     const res = await fetch("/api/subtasks", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...(await authHeader()) },
       body: JSON.stringify({ task_id: id, title: newSubtask.trim(), completed: false, sort_order: subtasks.length }),
     });
     const json = await res.json();
@@ -113,7 +113,7 @@ export default function TaskDetailPage() {
     if (!title) return;
     const res = await fetch("/api/subtasks", {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...(await authHeader()) },
       body: JSON.stringify({ id: subtaskId, title }),
     });
     if (!res.ok) toast.error("שגיאה בעדכון");
@@ -121,7 +121,7 @@ export default function TaskDetailPage() {
   };
 
   const handleDeleteSubtask = async (subtaskId: string) => {
-    const res = await fetch(`/api/subtasks?id=${subtaskId}`, { method: "DELETE" });
+    const res = await fetch(`/api/subtasks?id=${subtaskId}`, { method: "DELETE", headers: await authHeader() });
     if (!res.ok) toast.error("שגיאה במחיקה");
     else setSubtasks(prev => prev.filter(s => s.id !== subtaskId));
   };
@@ -129,17 +129,17 @@ export default function TaskDetailPage() {
   const handleStatusChange = async (status: string) => {
     const res = await fetch("/api/tasks", {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...(await authHeader()) },
       body: JSON.stringify({ id, status }),
     });
     if (!res.ok) { toast.error("שגיאה בעדכון"); return; }
     setTask(prev => prev ? { ...prev, status: status as any } : null);
     if (status === "completed" && sendCompletionEmail) {
-      fetch("/api/task-notify", {
+      authHeader().then(h => fetch("/api/task-notify", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...h },
         body: JSON.stringify({ task_id: id }),
-      }).then(r => r.json()).then(j => {
+      })).then(r => r.json()).then(j => {
         if (!j.skipped) toast.success("מייל השלמה נשלח");
       }).catch(() => {});
     }

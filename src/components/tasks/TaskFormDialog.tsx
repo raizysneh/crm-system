@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { supabase } from "@/lib/supabase/client";
+import { supabase, authHeader } from "@/lib/supabase/client";
 import { Customer, User, Task, Project } from "@/types";
 import { toast } from "sonner";
 import { useAuthStore } from "@/store/authStore";
@@ -138,7 +138,7 @@ export default function TaskFormDialog({ task, clients, employees, onClose, onSa
         // PATCH: never overwrite created_by
         const res = await fetch("/api/tasks", {
           method: "PATCH",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...(await authHeader()) },
           body: JSON.stringify({ id: task.id, ...sharedFields }),
         });
         const json = await res.json();
@@ -147,7 +147,7 @@ export default function TaskFormDialog({ task, clients, employees, onClose, onSa
         // POST: set created_by only on creation
         const res = await fetch("/api/tasks", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...(await authHeader()) },
           body: JSON.stringify({ ...sharedFields, created_by: user?.id, subtasks: data.subtasks || [] }),
         });
         const json = await res.json();

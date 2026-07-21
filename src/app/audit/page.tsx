@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { supabase } from "@/lib/supabase/client";
+import { supabase, authHeader } from "@/lib/supabase/client";
 import { useAuthStore } from "@/store/authStore";
 import { useRouter } from "next/navigation";
 import { formatDate, cn } from "@/lib/utils";
@@ -87,7 +87,7 @@ export default function AuditPage() {
     if (filters.from)        params.set("from",        filters.from);
     if (filters.to)          params.set("to",          filters.to);
 
-    const res  = await fetch(`/api/audit?${params}`);
+    const res  = await fetch(`/api/audit?${params}`, { headers: await authHeader() });
     const json = await res.json();
     setEntries(json.data || []);
     setTotal(json.total || 0);

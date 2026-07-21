@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
+import { getAuthedUser } from "@/lib/supabase/authServer";
 
 function admin() {
   return createClient(
@@ -11,16 +12,18 @@ function admin() {
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
-    const { user_id, customer_id, task_id, project_id, start_time, end_time, duration, notes } = body;
+    const authedUser = await getAuthedUser(req);
+    if (!authedUser) return NextResponse.json({ error: "לא מחובר" }, { status: 401 });
 
-    if (!user_id) return NextResponse.json({ error: "חסר user_id" }, { status: 400 });
+    const body = await req.json();
+    const { customer_id, task_id, project_id, start_time, end_time, duration, notes } = body;
+
     if (!start_time) return NextResponse.json({ error: "חסר start_time" }, { status: 400 });
 
     const { data, error } = await admin()
       .from("time_entries")
       .insert({
-        user_id,
+        user_id: authedUser.id, // always the caller — never trust a client-supplied user_id
         customer_id: customer_id || null,
         task_id: task_id || null,
         project_id: project_id || null,
@@ -46,12 +49,18 @@ export async function POST(req: NextRequest) {
 
 export async function GET(req: NextRequest) {
   try {
+    const authedUser = await getAuthedUser(req);
+    if (!authedUser) return NextResponse.json({ error: "לא מחובר" }, { status: 401 });
+    if (authedUser.role === "client") return NextResponse.json({ error: "אין הרשאה" }, { status: 403 });
+
     const { searchParams } = new URL(req.url);
     const from    = searchParams.get("from");
     const to      = searchParams.get("to");
-    const userId  = searchParams.get("user_id");
     const custId  = searchParams.get("customer_id");
-    const role    = searchParams.get("role"); // "admin" | "employee"
+
+    // Employees can only ever see their own entries, regardless of what's requested.
+    const requestedUserId = searchParams.get("user_id");
+    const userId = authedUser.role === "admin" ? requestedUserId : authedUser.id;
 
     let q = admin()
       .from("time_entries")
@@ -60,8 +69,7 @@ export async function GET(req: NextRequest) {
 
     if (from) q = q.gte("start_time", from);
     if (to)   q = q.lte("start_time", to);
-    if (role === "employee" && userId) q = q.eq("user_id", userId);
-    else if (userId && role !== "admin") q = q.eq("user_id", userId);
+    if (userId) q = q.eq("user_id", userId);
     if (custId) q = q.eq("customer_id", custId);
 
     const { data, error } = await q;
@@ -74,11 +82,22 @@ export async function GET(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   try {
+    const authedUser = await getAuthedUser(req);
+    if (!authedUser) return NextResponse.json({ error: "לא מחובר" }, { status: 401 });
+
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
     if (!id) return NextResponse.json({ error: "חסר id" }, { status: 400 });
 
-    const { error } = await admin().from("time_entries").delete().eq("id", id);
+    const db = admin();
+    if (authedUser.role !== "admin") {
+      const { data: existing } = await db.from("time_entries").select("user_id").eq("id", id).single();
+      if (!existing || existing.user_id !== authedUser.id) {
+        return NextResponse.json({ error: "אין הרשאה" }, { status: 403 });
+      }
+    }
+
+    const { error } = await db.from("time_entries").delete().eq("id", id);
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
     return NextResponse.json({ ok: true });
@@ -89,11 +108,22 @@ export async function DELETE(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   try {
+    const authedUser = await getAuthedUser(req);
+    if (!authedUser) return NextResponse.json({ error: "לא מחובר" }, { status: 401 });
+
     const body = await req.json();
     const { id, customer_id, task_id, notes, start_time, end_time, duration } = body;
     if (!id) return NextResponse.json({ error: "חסר id" }, { status: 400 });
 
-    const { error } = await admin().from("time_entries").update({
+    const db = admin();
+    if (authedUser.role !== "admin") {
+      const { data: existing } = await db.from("time_entries").select("user_id").eq("id", id).single();
+      if (!existing || existing.user_id !== authedUser.id) {
+        return NextResponse.json({ error: "אין הרשאה" }, { status: 403 });
+      }
+    }
+
+    const { error } = await db.from("time_entries").update({
       customer_id: customer_id || null,
       task_id: task_id || null,
       notes: notes || "",

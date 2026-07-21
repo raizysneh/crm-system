@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
+import { getAuthedUser, AuthedUser } from "@/lib/supabase/authServer";
 
 function admin() {
   return createClient(
@@ -9,11 +10,20 @@ function admin() {
   );
 }
 
+// Employees may only touch tasks they created or are assigned to; admins get full access.
+async function canTouchTask(db: ReturnType<typeof admin>, taskId: string, authedUser: AuthedUser) {
+  if (authedUser.role === "admin") return true;
+  const { data } = await db.from("tasks").select("assigned_user_id, created_by").eq("id", taskId).single();
+  return !!data && (data.assigned_user_id === authedUser.id || data.created_by === authedUser.id);
+}
+
 export async function GET(req: NextRequest) {
   try {
+    const authedUser = await getAuthedUser(req);
+    if (!authedUser || authedUser.role === "client") return NextResponse.json({ error: "אין הרשאה" }, { status: 403 });
+
     const { searchParams } = new URL(req.url);
-    const userId     = searchParams.get("user_id");
-    const role       = searchParams.get("role");
+    const requestedUserId = searchParams.get("user_id");
     const status     = searchParams.get("status");
     const priority   = searchParams.get("priority");
     const custId     = searchParams.get("customer_id");
@@ -24,8 +34,9 @@ export async function GET(req: NextRequest) {
       .select(`*, customer:customers(id,company_name,logo_url), project:projects(id,name), assigned_user:users!assigned_user_id(id,full_name), subtasks(id,completed)`)
       .order("created_at", { ascending: false });
 
-    // Both employees AND admins see only their own assigned tasks (when role param sent)
-    if ((role === "employee" || role === "admin") && userId) q = q.eq("assigned_user_id", userId);
+    // Employees can never see anyone else's tasks, regardless of what's requested.
+    const userId = authedUser.role === "admin" ? requestedUserId : authedUser.id;
+    if (userId) q = q.eq("assigned_user_id", userId);
     if (status)   q = q.eq("status", status);
     else if (searchParams.get("exclude_completed") === "true") q = q.neq("status", "completed");
     if (priority) q = q.eq("priority", priority);
@@ -46,8 +57,13 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    const authedUser = await getAuthedUser(req);
+    if (!authedUser || authedUser.role === "client") return NextResponse.json({ error: "אין הרשאה" }, { status: 403 });
+
     const body = await req.json();
     const { subtasks, ...taskData } = body;
+    // Never trust a client-supplied creator — always the verified caller.
+    taskData.created_by = authedUser.id;
 
     const { data: task, error } = await admin()
       .from("tasks")
@@ -72,11 +88,16 @@ export async function POST(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   try {
+    const authedUser = await getAuthedUser(req);
+    if (!authedUser || authedUser.role === "client") return NextResponse.json({ error: "אין הרשאה" }, { status: 403 });
+
     const body = await req.json();
     const { id, ...taskData } = body;
     if (!id) return NextResponse.json({ error: "חסר id" }, { status: 400 });
 
     const db = admin();
+    if (!(await canTouchTask(db, id, authedUser))) return NextResponse.json({ error: "אין הרשאה" }, { status: 403 });
+
     const { error } = await db.from("tasks").update(taskData).eq("id", id);
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
@@ -182,10 +203,14 @@ function computeNextDate(task: any): Date | null {
 
 export async function DELETE(req: NextRequest) {
   try {
+    const authedUser = await getAuthedUser(req);
+    if (!authedUser || authedUser.role === "client") return NextResponse.json({ error: "אין הרשאה" }, { status: 403 });
+
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
     if (!id) return NextResponse.json({ error: "חסר id" }, { status: 400 });
     const db = admin();
+    if (!(await canTouchTask(db, id, authedUser))) return NextResponse.json({ error: "אין הרשאה" }, { status: 403 });
     // Delete subtasks first
     await db.from("subtasks").delete().eq("task_id", id);
     await db.from("time_entries").update({ task_id: null }).eq("task_id", id);

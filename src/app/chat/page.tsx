@@ -9,7 +9,7 @@ import {
 import Header from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { supabase } from "@/lib/supabase/client";
+import { supabase, authHeader } from "@/lib/supabase/client";
 import { ChatConversation, ChatMessage, User } from "@/types";
 import { useAuthStore } from "@/store/authStore";
 import { toast } from "sonner";
@@ -329,13 +329,13 @@ export default function ChatPage() {
     const edited = new Set<string>();
     // Mark messages as read + load read receipts
     if (data?.length && user) {
-      fetch("/api/chat-reads", {
+      authHeader().then(h => fetch("/api/chat-reads", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ conversation_id: convId, user_id: user.id }),
-      }).catch(() => {});
+        headers: { "Content-Type": "application/json", ...h },
+        body: JSON.stringify({ conversation_id: convId }),
+      })).catch(() => {});
       const ids = data.map((m: any) => m.id).join(",");
-      fetch(`/api/chat-reads?ids=${ids}`)
+      authHeader().then(h => fetch(`/api/chat-reads?ids=${ids}`, { headers: h }))
         .then(r => r.json())
         .then(j => {
           const map: Record<string, string[]> = {};
@@ -401,8 +401,8 @@ export default function ChatPage() {
     setGifResults([]);
     const res = await fetch("/api/chat-messages", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ conversation_id: activeConv.id, sender_id: user.id, content: gifUrl, message_type: "gif" }),
+      headers: { "Content-Type": "application/json", ...(await authHeader()) },
+      body: JSON.stringify({ conversation_id: activeConv.id, content: gifUrl, message_type: "gif" }),
     });
     const json = await res.json();
     if (!res.ok) throw new Error(json.error || "שגיאה בשליחת GIF");
@@ -419,7 +419,7 @@ export default function ChatPage() {
       form.append("bucket", "attachments");
       form.append("path", `gifs/${user.id}/${Date.now()}_${file.name.replace(/[^\w.\-]/g, "_")}`);
 
-      const res = await fetch("/api/upload", { method: "POST", body: form });
+      const res = await fetch("/api/upload", { method: "POST", body: form, headers: await authHeader() });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "שגיאה בהעלאה");
 
@@ -541,7 +541,7 @@ export default function ChatPage() {
     if (!editContent.trim()) return;
     const res = await fetch("/api/chat-messages", {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...(await authHeader()) },
       body: JSON.stringify({ id: msgId, content: editContent.trim() }),
     });
     if (res.ok) {
@@ -553,7 +553,7 @@ export default function ChatPage() {
 
   const handleDelete = async (msgId: string) => {
     if (!confirm("למחוק הודעה זו?")) return;
-    const res = await fetch(`/api/chat-messages?id=${msgId}`, { method: "DELETE" });
+    const res = await fetch(`/api/chat-messages?id=${msgId}`, { method: "DELETE", headers: await authHeader() });
     if (res.ok) setMessages(prev => prev.filter(m => m.id !== msgId));
     else toast.error("שגיאה במחיקה");
   };
@@ -565,7 +565,7 @@ export default function ChatPage() {
     setPinnedMessages(next);
     await fetch("/api/chat-messages", {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...(await authHeader()) },
       body: JSON.stringify({ id: msgId, is_pinned: !isPinned }),
     });
     toast.success(isPinned ? "הצמדה הוסרה" : "הודעה הוצמדה ✓");
@@ -579,7 +579,7 @@ export default function ChatPage() {
     if (existing) {
       // Optimistic remove
       setRawReactions(prev => prev.filter(r => r.id !== existing.id));
-      const res = await fetch(`/api/chat-reactions?id=${existing.id}`, { method: "DELETE" });
+      const res = await fetch(`/api/chat-reactions?id=${existing.id}`, { method: "DELETE", headers: await authHeader() });
       if (!res.ok) { setRawReactions(prev => [...prev, existing]); toast.error("שגיאה בהסרת תגובה"); }
     } else {
       // Optimistic add
@@ -587,8 +587,8 @@ export default function ChatPage() {
       setRawReactions(prev => [...prev, { id: tempId, message_id: msgId, user_id: user.id, emoji }]);
       const res = await fetch("/api/chat-reactions", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message_id: msgId, user_id: user.id, emoji }),
+        headers: { "Content-Type": "application/json", ...(await authHeader()) },
+        body: JSON.stringify({ message_id: msgId, emoji }),
       });
       const json = await res.json();
       if (!res.ok) {

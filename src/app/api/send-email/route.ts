@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { sendMail } from "@/lib/mailer";
+import { getAuthedUser } from "@/lib/supabase/authServer";
 
 export async function POST(req: NextRequest) {
   try {
+    const authedUser = await getAuthedUser(req);
+    if (!authedUser || authedUser.role !== "admin") return NextResponse.json({ error: "אין הרשאה" }, { status: 403 });
+
     const { to, subject, html } = await req.json();
     if (!to || !subject || !html)
       return NextResponse.json({ error: "חסרים שדות חובה" }, { status: 400 });

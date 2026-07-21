@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
+import { getAuthedUser } from "@/lib/supabase/authServer";
 
 function admin() {
   return createClient(
@@ -9,11 +10,15 @@ function admin() {
   );
 }
 
-// POST — mark all messages in a conversation as read for a user
+// POST — mark all messages in a conversation as read for the caller
 export async function POST(req: NextRequest) {
   try {
-    const { conversation_id, user_id } = await req.json();
-    if (!conversation_id || !user_id) return NextResponse.json({ error: "חסרים פרמטרים" }, { status: 400 });
+    const authedUser = await getAuthedUser(req);
+    if (!authedUser) return NextResponse.json({ error: "לא מחובר" }, { status: 401 });
+
+    const { conversation_id } = await req.json();
+    if (!conversation_id) return NextResponse.json({ error: "חסרים פרמטרים" }, { status: 400 });
+    const user_id = authedUser.id;
 
     // Get all message IDs in this conversation (not sent by this user)
     const { data: msgs } = await admin()
@@ -41,6 +46,9 @@ export async function POST(req: NextRequest) {
 // GET — get read receipts for given message IDs
 export async function GET(req: NextRequest) {
   try {
+    const authedUser = await getAuthedUser(req);
+    if (!authedUser) return NextResponse.json({ error: "לא מחובר" }, { status: 401 });
+
     const ids = req.nextUrl.searchParams.get("ids");
     if (!ids) return NextResponse.json({ data: [] });
 

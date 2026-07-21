@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
+import { getAuthedUser } from "@/lib/supabase/authServer";
 
 function getAdminClient() {
   return createClient(
@@ -11,9 +12,12 @@ function getAdminClient() {
 
 export async function POST(req: NextRequest) {
   try {
+    const authedUser = await getAuthedUser(req);
+    if (!authedUser) return NextResponse.json({ error: "לא מחובר" }, { status: 401 });
+
     const body = await req.json();
-    const { conversation_id, sender_id, content, message_type, reply_to } = body;
-    if (!conversation_id || !sender_id || !content)
+    const { conversation_id, content, message_type, reply_to } = body;
+    if (!conversation_id || !content)
       return NextResponse.json({ error: "חסרים שדות חובה" }, { status: 400 });
 
     const admin = getAdminClient();
@@ -21,9 +25,10 @@ export async function POST(req: NextRequest) {
     const safeType = (message_type === "gif" || message_type === "image") ? "text" : (message_type || "text");
     const safeContent = (message_type === "gif" || message_type === "image") ? `__IMG__${content}` : content;
 
+    // sender_id is always the verified caller — never trust the client to say who's speaking
     const { data, error } = await admin
       .from("chat_messages")
-      .insert({ conversation_id, sender_id, content: safeContent, message_type: safeType, reply_to: reply_to || null })
+      .insert({ conversation_id, sender_id: authedUser.id, content: safeContent, message_type: safeType, reply_to: reply_to || null })
       .select("*, sender:users(id, full_name, avatar_url)")
       .single();
 
@@ -40,11 +45,23 @@ export async function POST(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   try {
+    const authedUser = await getAuthedUser(req);
+    if (!authedUser) return NextResponse.json({ error: "לא מחובר" }, { status: 401 });
+
     const body = await req.json();
     const { id, content, is_pinned } = body;
     if (!id) return NextResponse.json({ error: "חסר id" }, { status: 400 });
 
     const admin = getAdminClient();
+
+    // Editing content is limited to the message's own sender; pinning (is_pinned-only
+    // calls) is a moderation action anyone in the conversation can do.
+    if (content !== undefined && authedUser.role !== "admin") {
+      const { data: existing } = await admin.from("chat_messages").select("sender_id").eq("id", id).single();
+      if (!existing || existing.sender_id !== authedUser.id) {
+        return NextResponse.json({ error: "אין הרשאה" }, { status: 403 });
+      }
+    }
 
     if (content !== undefined) {
       const update: any = { content };
@@ -71,11 +88,22 @@ export async function PATCH(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   try {
+    const authedUser = await getAuthedUser(req);
+    if (!authedUser) return NextResponse.json({ error: "לא מחובר" }, { status: 401 });
+
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
     if (!id) return NextResponse.json({ error: "חסר id" }, { status: 400 });
 
-    const { error } = await getAdminClient().from("chat_messages").delete().eq("id", id);
+    const admin = getAdminClient();
+    if (authedUser.role !== "admin") {
+      const { data: existing } = await admin.from("chat_messages").select("sender_id").eq("id", id).single();
+      if (!existing || existing.sender_id !== authedUser.id) {
+        return NextResponse.json({ error: "אין הרשאה" }, { status: 403 });
+      }
+    }
+
+    const { error } = await admin.from("chat_messages").delete().eq("id", id);
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
     return NextResponse.json({ ok: true });
   } catch (err: any) {

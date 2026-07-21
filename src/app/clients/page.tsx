@@ -9,7 +9,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { supabase } from "@/lib/supabase/client";
+import { supabase, authHeader } from "@/lib/supabase/client";
 import { Customer } from "@/types";
 import { toast } from "sonner";
 import Link from "next/link";
@@ -51,7 +51,7 @@ export default function ClientsPage() {
     const newStatus = client.status === "active" ? "inactive" : "active";
     const res = await fetch("/api/customers", {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...(await authHeader()) },
       body: JSON.stringify({ id: client.id, status: newStatus }),
     });
     if (!res.ok) toast.error("שגיאה בעדכון סטטוס");
@@ -63,7 +63,7 @@ export default function ClientsPage() {
 
   const handleDelete = async (id: string) => {
     if (!confirm("האם אתה בטוח שברצונך למחוק לקוח זה?")) return;
-    const res = await fetch(`/api/customers?id=${id}`, { method: "DELETE" });
+    const res = await fetch(`/api/customers?id=${id}`, { method: "DELETE", headers: await authHeader() });
     if (!res.ok) toast.error("שגיאה במחיקה");
     else { toast.success("הלקוח הוסר"); loadClients(); }
   };

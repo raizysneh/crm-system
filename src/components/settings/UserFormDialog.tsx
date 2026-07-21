@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { User } from "@/types";
 import { toast } from "sonner";
+import { authHeader } from "@/lib/supabase/client";
 
 const schema = z.object({
   full_name: z.string().min(1, "שם מלא נדרש"),
@@ -48,7 +49,7 @@ export default function UserFormDialog({ user, onClose, onSave }: Props) {
       if (user?.id) {
         const res = await fetch("/api/users", {
           method: "PATCH",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...(await authHeader()) },
           body: JSON.stringify({
             id: user.id,
             full_name: data.full_name,
@@ -67,14 +68,18 @@ export default function UserFormDialog({ user, onClose, onSave }: Props) {
         }
         const res = await fetch("/api/users", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...(await authHeader()) },
           body: JSON.stringify(data),
         });
         const json = await res.json();
         if (!res.ok) throw new Error(json.error);
+        if (json.emailError) {
+          toast.warning(`המשתמש נוצר, אך שליחת המייל נכשלה: ${json.emailError}`);
+          onSave(); onClose(); return;
+        }
       }
 
-      toast.success(user ? "המשתמש עודכן" : "המשתמש נוצר בהצלחה");
+      toast.success(user ? "המשתמש עודכן" : "המשתמש נוצר ומייל נשלח בהצלחה");
       onSave();
       onClose();
     } catch (error: any) {
@@ -129,7 +134,7 @@ export default function UserFormDialog({ user, onClose, onSave }: Props) {
 
           {!user && (
             <p className="text-xs text-[#64748b] bg-[#f8fafc] rounded-lg p-3">
-              המשתמש יקבל הודעה למייל עם פרטי ההתחברות. יש לוודא שה-SUPABASE_SERVICE_ROLE_KEY הוגדר ב-.env.local
+              המשתמש יקבל הודעה למייל עם פרטי ההתחברות. אם המייל לא מגיע, בדקו את תיבת הספאם ואת הגדרות השולח בחשבון ה-SMTP
             </p>
           )}
         </form>

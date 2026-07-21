@@ -9,10 +9,24 @@ function admin() {
   );
 }
 
+// Called from the login page's MFA-blocked screen, so there's no session yet.
+// The caller must instead prove they know the account's password — otherwise
+// anyone could strip 2FA off any account just by knowing its email address.
+function anonClient() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false } }
+  );
+}
+
 export async function POST(req: NextRequest) {
   try {
-    const { email } = await req.json();
-    if (!email) return NextResponse.json({ error: "חסר מייל" }, { status: 400 });
+    const { email, password } = await req.json();
+    if (!email || !password) return NextResponse.json({ error: "חסרים פרטי התחברות" }, { status: 400 });
+
+    const { error: pwError } = await anonClient().auth.signInWithPassword({ email, password });
+    if (pwError) return NextResponse.json({ error: "מייל או סיסמה שגויים" }, { status: 401 });
 
     const { data: listData, error: listErr } = await admin().auth.admin.listUsers();
     if (listErr) return NextResponse.json({ error: listErr.message }, { status: 500 });
