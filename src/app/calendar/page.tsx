@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import Link from "next/link";
 import MeetingFormDialog from "@/components/calendar/MeetingFormDialog";
+import { getHebrewDateStr, getIsraeliHolidays } from "@/lib/hebrewCalendar";
 
 const DAYS_HE   = ["ראשון","שני","שלישי","רביעי","חמישי","שישי","שבת"];
 const DAYS_SHORT = ["א׳","ב׳","ג׳","ד׳","ה׳","ו׳","ש׳"];
@@ -26,7 +27,7 @@ interface CalEvent {
   id: string;
   title: string;
   date: string;      // yyyy-mm-dd
-  type: "task" | "meeting" | "overdue";
+  type: "task" | "meeting" | "overdue" | "holiday";
   color: string;
   time?: string;
   endTime?: string;
@@ -197,6 +198,14 @@ export default function CalendarPage() {
           });
         });
 
+      // Israeli holidays / observances — computed locally, no network needed
+      const holidays = getIsraeliHolidays(new Date(from), new Date(to));
+      holidays.forEach((names, dateStr) => {
+        names.forEach((name, idx) => {
+          result.push({ id: `holiday_${dateStr}_${idx}`, title: name, date: dateStr, type: "holiday", color: "#8b5cf6" });
+        });
+      });
+
       setEvents(result);
     } catch { toast.error("שגיאה בטעינה"); }
     finally { setLoading(false); }
@@ -317,13 +326,15 @@ export default function CalendarPage() {
   const selectedEvents = selectedDay ? getEventsForDay(selectedDay) : [];
 
   const EventChip = ({ ev, compact = false }: { ev: CalEvent; compact?: boolean }) => {
+    const draggable = ev.type !== "holiday";
     const chip = (
       <div
-        draggable
-        onDragStart={e => { e.stopPropagation(); setDragEvent(ev); }}
+        draggable={draggable}
+        onDragStart={e => { if (!draggable) { e.preventDefault(); return; } e.stopPropagation(); setDragEvent(ev); }}
         onDragEnd={() => setDragEvent(null)}
         className={cn(
-          "flex items-center gap-1 rounded px-1.5 py-0.5 text-white hover:opacity-90 transition-opacity cursor-grab active:cursor-grabbing",
+          "flex items-center gap-1 rounded px-1.5 py-0.5 text-white hover:opacity-90 transition-opacity",
+          draggable ? "cursor-grab active:cursor-grabbing" : "cursor-pointer",
           compact ? "text-[11px]" : "text-[13px]"
         )}
         style={{ backgroundColor: ev.color }}
@@ -447,6 +458,9 @@ export default function CalendarPage() {
                             onClick={e => { e.stopPropagation(); setFormDefaultDate(dateStr); setEditMeeting(null); setShowMeetingForm(true); }}
                             title="פגישה חדשה בתאריך זה"
                           >{day}</div>
+                          <span className="text-[9px] text-[#94a3b8] font-normal">
+                            {getHebrewDateStr(new Date(dateStr + "T12:00:00"), true)}
+                          </span>
                           <button
                             onClick={e => { e.stopPropagation(); setFormDefaultDate(dateStr); setEditMeeting(null); setShowMeetingForm(true); }}
                             className="opacity-0 group-hover/cell:opacity-100 transition-opacity w-4 h-4 rounded-full bg-[#16a34a] text-white flex items-center justify-center text-[10px] font-bold hover:bg-[#15803d]"
@@ -480,6 +494,9 @@ export default function CalendarPage() {
                           "w-8 h-8 rounded-full flex items-center justify-center mx-auto text-sm font-bold",
                           isToday ? "bg-[#16a34a] text-white" : "text-[#0f172a]"
                         )}>{day}</div>
+                        <div className="text-[9px] text-[#94a3b8] mt-1">
+                          {getHebrewDateStr(new Date(dateStr + "T12:00:00"), true)}
+                        </div>
                       </div>
                     );
                   })}
@@ -531,6 +548,9 @@ export default function CalendarPage() {
                         </div>
                         <div className="text-xs text-[#94a3b8]">
                           {new Date(dateStr+"T12:00:00").getDate()} {MONTHS_HE[new Date(dateStr+"T12:00:00").getMonth()]}
+                        </div>
+                        <div className="text-[10px] text-[#c4c9d4]">
+                          {getHebrewDateStr(new Date(dateStr + "T12:00:00"), true)}
                         </div>
                       </div>
                       <div className="flex-1 space-y-2">
@@ -651,6 +671,7 @@ export default function CalendarPage() {
                     { color:"#f59e0b", label:"משימות לביצוע" },
                     { color:"#ef4444", label:"משימות באיחור" },
                     { color:"#3b82f6", label:"פגישות" },
+                    { color:"#8b5cf6", label:"מועדי ישראל" },
                   ].map(({ color, label }) => (
                     <div key={label} className="flex items-center gap-2 text-sm">
                       <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: color }} />
@@ -685,9 +706,14 @@ export default function CalendarPage() {
             {selectedDay && (
               <div className="bg-white rounded-xl border border-[#f1f5f9] overflow-hidden">
                 <div className="px-4 py-3 border-b border-[#f1f5f9] flex items-center justify-between">
-                  <h3 className="font-semibold text-[#0f172a] text-sm">
-                    {DAYS_HE[new Date(selectedDay+"T12:00:00").getDay()]}, {fmt(selectedDay)}
-                  </h3>
+                  <div>
+                    <h3 className="font-semibold text-[#0f172a] text-sm">
+                      {DAYS_HE[new Date(selectedDay+"T12:00:00").getDay()]}, {fmt(selectedDay)}
+                    </h3>
+                    <p className="text-[10px] text-[#94a3b8] mt-0.5">
+                      {getHebrewDateStr(new Date(selectedDay + "T12:00:00"))}
+                    </p>
+                  </div>
                   <button
                     onClick={() => { setEditMeeting(null); setFormDefaultDate(selectedDay); setShowMeetingForm(true); }}
                     className="text-[#16a34a] hover:bg-[#f0fdf4] p-1 rounded" title="פגישה חדשה">
