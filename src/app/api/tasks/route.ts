@@ -1,6 +1,8 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthedUser, AuthedUser } from "@/lib/supabase/authServer";
+import { sendMail } from "@/lib/mailer";
+import { makeDeletionToken } from "@/lib/taskDeletionToken";
 
 function admin() {
   return createClient(
@@ -105,7 +107,7 @@ export async function PATCH(req: NextRequest) {
     if (taskData.pending_deletion === true) {
       const [{ data: task }, { data: admins }] = await Promise.all([
         db.from("tasks").select("title").eq("id", id).single(),
-        db.from("users").select("id").eq("role", "admin").eq("status", "active"),
+        db.from("users").select("id, email").eq("role", "admin").eq("status", "active"),
       ]);
       if (task && admins?.length) {
         await db.from("notifications").insert(
@@ -117,6 +119,26 @@ export async function PATCH(req: NextRequest) {
             is_read: false,
           }))
         );
+
+        const emails = admins.map(a => a.email).filter(Boolean);
+        if (emails.length) {
+          const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+          const link = `${appUrl}/task-deletion?id=${id}&token=${makeDeletionToken(id)}`;
+          sendMail({
+            to: emails,
+            subject: `בקשת מחיקת משימה: ${task.title}`,
+            html: `
+              <div dir="rtl" style="font-family:Arial,sans-serif;max-width:600px;margin:auto;padding:24px;background:#f8fafc;border-radius:12px;">
+                <h2 style="color:#0f172a;margin-bottom:8px;">בקשת מחיקת משימה</h2>
+                <p style="color:#374151;">התקבלה בקשה למחוק את המשימה:</p>
+                <p style="font-weight:600;color:#0f172a;background:white;border:1px solid #e2e8f0;border-radius:8px;padding:12px 16px;">${task.title}</p>
+                <div style="margin:24px 0;text-align:center;">
+                  <a href="${link}" style="background:#16a34a;color:white;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">לצפייה ואישור/דחייה</a>
+                </div>
+                <p style="color:#94a3b8;font-size:12px;text-align:center;">מייל זה נשלח ממערכת CRM</p>
+              </div>`,
+          }).catch(err => console.warn("[tasks] deletion-request email failed:", err));
+        }
       }
     }
 
