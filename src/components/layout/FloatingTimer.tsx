@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Play, Pause, Square, Timer, Plus, X, Minus, ExternalLink, PictureInPicture } from "lucide-react";
+import { Play, Pause, Square, Timer, Plus, X, Minus, ExternalLink, PictureInPicture, Search } from "lucide-react";
 import { useTimerStore, ActiveTimer, getTimerDisplaySeconds } from "@/store/timerStore";
 import { useAuthStore } from "@/store/authStore";
 import { supabase, authHeader } from "@/lib/supabase/client";
@@ -155,6 +155,7 @@ export default function FloatingTimer() {
   };
 
   const totalSeconds = timers.reduce((s, t) => s + getTimerDisplaySeconds(t), 0);
+  const hasRunning   = timers.some(t => !t.is_paused);
 
   const openPiP = async () => {
     if (!("documentPictureInPicture" in window)) {
