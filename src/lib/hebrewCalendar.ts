@@ -12,6 +12,7 @@ const EXCLUDED_DESC_PREFIXES = [
   "Ben-Gurion Day",
   "Jabotinsky Day",
   "Chag HaBanot",
+  "Sigd",
 ];
 
 const HOLIDAY_MASK =
@@ -54,4 +55,31 @@ export function getIsraeliHolidays(from: Date, to: Date): Map<string, string[]> 
     map.get(key)!.push(name);
   }
   return map;
+}
+
+// Gregorian [first, last] day of the Hebrew month containing gregDate
+export function hebrewMonthBounds(gregDate: Date): { first: Date; last: Date; hy: number; hm: number } {
+  const hd = new HDate(gregDate);
+  const hy = hd.getFullYear();
+  const hm = hd.getMonth();
+  const first = new HDate(1, hm, hy).greg();
+  const last = new HDate(HDate.daysInMonth(hm, hy), hm, hy).greg();
+  return { first, last, hy, hm };
+}
+
+// e.g. "חשוון תשפ״ז"
+export function hebrewMonthLabel(hy: number, hm: number): string {
+  const parts = new HDate(1, hm, hy).renderGematriya(true).split(" ");
+  return parts.slice(1).join(" ");
+}
+
+// Hebrew day number in Hebrew letters for a Gregorian date, e.g. "ט״ו"
+export function hebrewDayLetter(date: Date): string {
+  return getHebrewDateStr(date, true).split(" ")[0];
+}
+
+// A Gregorian date inside the previous/next Hebrew month (dir = -1 | 1)
+export function shiftHebrewMonth(gregDate: Date, dir: number): Date {
+  const hd = new HDate(gregDate).add(dir, "M");
+  return hd.greg();
 }

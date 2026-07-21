@@ -15,7 +15,10 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import Link from "next/link";
 import MeetingFormDialog from "@/components/calendar/MeetingFormDialog";
-import { getHebrewDateStr, getIsraeliHolidays } from "@/lib/hebrewCalendar";
+import {
+  getHebrewDateStr, getIsraeliHolidays,
+  hebrewMonthBounds, hebrewMonthLabel, hebrewDayLetter, shiftHebrewMonth,
+} from "@/lib/hebrewCalendar";
 
 const DAYS_HE   = ["ראשון","שני","שלישי","רביעי","חמישי","שישי","שבת"];
 const DAYS_SHORT = ["א׳","ב׳","ג׳","ד׳","ה׳","ו׳","ש׳"];
@@ -112,6 +115,7 @@ export default function CalendarPage() {
   const [sidebarMode, setSidebarMode]   = useState<"pinned" | "floating">("pinned");
   const [floatPos, setFloatPos]         = useState({ x: 20, y: 100 });
   const [showSidebarMenu, setShowSidebarMenu] = useState(false);
+  const [dateSystem, setDateSystem]     = useState<"gregorian" | "hebrew">("gregorian");
   const dragState = useRef<{ ox: number; oy: number; px: number; py: number } | null>(null);
 
   const year  = currentDate.getFullYear();
@@ -266,13 +270,21 @@ export default function CalendarPage() {
   };
 
   // ── Month view ──────────────────────────────────────────────────────────────
+  // "Month" means either the Gregorian or the Hebrew month, depending on dateSystem —
+  // either way we walk forward day-by-day in Gregorian terms, since events are keyed
+  // by Gregorian date regardless of which calendar frames the grid.
 
-  const firstDay    = new Date(year, month, 1).getDay();
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const hebBounds = dateSystem === "hebrew" ? hebrewMonthBounds(currentDate) : null;
+  const monthStart = hebBounds ? hebBounds.first : new Date(year, month, 1);
+  const monthEnd   = hebBounds ? hebBounds.last  : new Date(year, month + 1, 0);
+  const firstDay    = monthStart.getDay();
+  const daysInMonth = Math.round((monthEnd.getTime() - monthStart.getTime()) / 86400000) + 1;
   const cells: (string | null)[] = [];
   for (let i = 0; i < firstDay; i++) cells.push(null);
-  for (let d = 1; d <= daysInMonth; d++) {
-    cells.push(`${year}-${String(month+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`);
+  for (let d = 0; d < daysInMonth; d++) {
+    const dt = new Date(monthStart);
+    dt.setDate(monthStart.getDate() + d);
+    cells.push(toYMD(dt));
   }
   while (cells.length % 7 !== 0) cells.push(null);
 
@@ -296,9 +308,7 @@ export default function CalendarPage() {
 
   const getAgendaDays = () => {
     const days: string[] = [];
-    const start = new Date(year, month, 1);
-    const end   = new Date(year, month + 1, 0);
-    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+    for (let d = new Date(monthStart); d <= monthEnd; d.setDate(d.getDate() + 1)) {
       const s = toYMD(new Date(d));
       if (events.some(e => e.date === s)) days.push(s);
     }
@@ -310,6 +320,8 @@ export default function CalendarPage() {
       const d = new Date(currentDate);
       d.setDate(d.getDate() + dir * 7);
       setCurrentDate(d);
+    } else if (dateSystem === "hebrew") {
+      setCurrentDate(shiftHebrewMonth(currentDate, dir));
     } else {
       setCurrentDate(new Date(year, month + dir, 1));
     }
@@ -319,6 +331,9 @@ export default function CalendarPage() {
     if (viewMode === "week") {
       const w = weekDays;
       return `${fmt(w[0])} – ${fmt(w[6])} ${year}`;
+    }
+    if (dateSystem === "hebrew" && hebBounds) {
+      return hebrewMonthLabel(hebBounds.hy, hebBounds.hm);
     }
     return `${MONTHS_HE[month]} ${year}`;
   };
@@ -383,6 +398,20 @@ export default function CalendarPage() {
               ))}
             </div>
 
+            {/* Date system: Gregorian / Hebrew */}
+            <div className="flex items-center border border-[#e2e8f0] rounded-lg overflow-hidden bg-white">
+              {([
+                { k: "gregorian" as const, label: "לועזי" },
+                { k: "hebrew" as const, label: "עברי" },
+              ]).map(({ k, label }) => (
+                <button key={k} onClick={() => setDateSystem(k)}
+                  className={cn("px-3 py-2 text-sm font-medium transition-colors",
+                    dateSystem === k ? "bg-[#16a34a] text-white" : "text-[#64748b] hover:bg-[#f8fafc]")}>
+                  {label}
+                </button>
+              ))}
+            </div>
+
             {/* Nav */}
             <button onClick={() => nav(-1)} className="p-1.5 rounded-lg hover:bg-[#f8fafc] border border-[#e2e8f0]">
               <ChevronRight className="h-4 w-4 text-[#64748b]" />
@@ -441,7 +470,11 @@ export default function CalendarPage() {
                     const dayEvs = getEventsForDay(dateStr);
                     const isToday    = dateStr === todayStr;
                     const isSelected = dateStr === selectedDay;
-                    const day = parseInt(dateStr.split("-")[2]);
+                    const dateObj = new Date(dateStr + "T12:00:00");
+                    const day = dateSystem === "hebrew" ? hebrewDayLetter(dateObj) : parseInt(dateStr.split("-")[2]);
+                    const smallLabel = dateSystem === "hebrew"
+                      ? `${dateObj.getDate()} ${MONTHS_HE[dateObj.getMonth()]}`
+                      : getHebrewDateStr(dateObj, true);
                     return (
                       <DropCell key={dateStr} dateStr={dateStr}
                         className={cn(
@@ -452,14 +485,15 @@ export default function CalendarPage() {
                         <div className="flex items-center justify-between mb-1">
                           <div
                             className={cn(
-                              "w-7 h-7 rounded-full flex items-center justify-center text-sm font-semibold",
+                              "rounded-full flex items-center justify-center font-semibold shrink-0",
+                              dateSystem === "hebrew" ? "min-w-7 h-7 px-1 text-xs" : "w-7 h-7 text-sm",
                               isToday ? "bg-[#16a34a] text-white" : "text-[#374151]"
                             )}
                             onClick={e => { e.stopPropagation(); setFormDefaultDate(dateStr); setEditMeeting(null); setShowMeetingForm(true); }}
                             title="פגישה חדשה בתאריך זה"
                           >{day}</div>
                           <span className="text-[9px] text-[#94a3b8] font-normal">
-                            {getHebrewDateStr(new Date(dateStr + "T12:00:00"), true)}
+                            {smallLabel}
                           </span>
                           <button
                             onClick={e => { e.stopPropagation(); setFormDefaultDate(dateStr); setEditMeeting(null); setShowMeetingForm(true); }}
