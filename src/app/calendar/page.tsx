@@ -111,8 +111,8 @@ export default function CalendarPage() {
   const [employees, setEmployees]       = useState<{id:string; full_name:string}[]>([]);
   const [filterEmployee, setFilterEmployee] = useState("me");
   const [dragEvent, setDragEvent]       = useState<CalEvent | null>(null);
-  const [showLegend, setShowLegend]     = useState(false);
-  const [sidebarMode, setSidebarMode]   = useState<"pinned" | "floating">("pinned");
+  const [sidebarMode, setSidebarMode]   = useState<"pinned" | "floating" | "hidden">("pinned");
+  const [hiddenPanelOpen, setHiddenPanelOpen] = useState(false);
   const [floatPos, setFloatPos]         = useState({ x: 20, y: 100 });
   const [showSidebarMenu, setShowSidebarMenu] = useState(false);
   const [dateSystem, setDateSystem]     = useState<"gregorian" | "hebrew">("gregorian");
@@ -375,6 +375,121 @@ export default function CalendarPage() {
     </div>
   );
 
+  // Legend + month stats + selected-day panel — shared between the pinned/floating
+  // sidebar and the "hidden" mode's click-flyout, so the content is written once.
+  const renderSidebarPanels = () => (
+    <>
+      {/* Legend */}
+      <div className="bg-white rounded-xl border border-[#f1f5f9] p-3 space-y-2">
+        <p className="font-semibold text-[#0f172a] text-sm mb-1">מקרא</p>
+        {[
+          { color:"#f59e0b", label:"משימות לביצוע" },
+          { color:"#ef4444", label:"משימות באיחור" },
+          { color:"#3b82f6", label:"פגישות" },
+          { color:"#8b5cf6", label:"מועדי ישראל" },
+        ].map(({ color, label }) => (
+          <div key={label} className="flex items-center gap-2 text-sm">
+            <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: color }} />
+            <span className="text-[#64748b]">{label}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Month stats — compact horizontal */}
+      <div className="bg-white rounded-xl border border-[#f1f5f9] p-3">
+        <p className="text-[10px] font-bold uppercase tracking-widest text-[#94a3b8] mb-2 px-1">סיכום חודש</p>
+        <div className="grid grid-cols-3 gap-1.5">
+          {[
+            { color:"#f59e0b", label:"משימות", count: events.filter(e=>e.type==="task").length },
+            { color:"#ef4444", label:"באיחור",  count: events.filter(e=>e.type==="overdue").length },
+            { color:"#3b82f6", label:"פגישות",  count: events.filter(e=>e.type==="meeting").length },
+          ].map(({ color, label, count }) => (
+            <div key={label} className="flex flex-col items-center py-2 rounded-lg bg-[#f8fafc] border border-[#f1f5f9]">
+              <span className="text-xl font-bold text-[#0f172a] leading-none">{count}</span>
+              <div className="flex items-center gap-1 mt-1">
+                <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: color }} />
+                <span className="text-[10px] text-[#64748b]">{label}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Selected day panel */}
+      {selectedDay && (
+        <div className="bg-white rounded-xl border border-[#f1f5f9] overflow-hidden">
+          <div className="px-4 py-3 border-b border-[#f1f5f9] flex items-center justify-between">
+            <div>
+              <h3 className="font-semibold text-[#0f172a] text-sm">
+                {DAYS_HE[new Date(selectedDay+"T12:00:00").getDay()]}, {fmt(selectedDay)}
+              </h3>
+              <p className="text-[10px] text-[#94a3b8] mt-0.5">
+                {getHebrewDateStr(new Date(selectedDay + "T12:00:00"))}
+              </p>
+            </div>
+            <button
+              onClick={() => { setEditMeeting(null); setFormDefaultDate(selectedDay); setShowMeetingForm(true); }}
+              className="text-[#16a34a] hover:bg-[#f0fdf4] p-1 rounded" title="פגישה חדשה">
+              <Plus className="h-4 w-4" />
+            </button>
+          </div>
+          <div className="p-3">
+            {selectedEvents.length === 0 ? (
+              <p className="text-sm text-[#94a3b8] text-center py-4">אין אירועים</p>
+            ) : (
+              <div className="space-y-2">
+                {selectedEvents
+                  .sort((a,b) => (a.time||"").localeCompare(b.time||""))
+                  .map(ev => (
+                    <div key={ev.id} className="p-2.5 rounded-lg border border-[#f1f5f9] hover:border-[#e2e8f0]">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-start gap-2">
+                          <div className="w-2 h-2 rounded-full mt-1.5 shrink-0" style={{ backgroundColor: ev.color }} />
+                          <div>
+                            {(ev.type === "task" || ev.type === "overdue") ? (
+                              <Link href={`/tasks/${ev.id}`} className="text-sm font-medium text-[#0f172a] hover:text-[#16a34a] hover:underline">{ev.title}</Link>
+                            ) : (
+                              <p className="text-sm font-medium text-[#0f172a]">{ev.title}</p>
+                            )}
+                            {ev.time && (
+                              <p className="text-xs text-[#64748b] flex items-center gap-1 mt-0.5">
+                                <Clock className="h-3 w-3" />{ev.time}{ev.endTime ? ` – ${ev.endTime}` : ""}
+                              </p>
+                            )}
+                            {ev.customer_name && <p className="text-xs text-[#94a3b8] mt-0.5">{ev.customer_name}</p>}
+                            {ev.location && (
+                              <p className="text-xs text-[#94a3b8] flex items-center gap-1 mt-0.5">
+                                <MapPin className="h-3 w-3" />{ev.location}
+                              </p>
+                            )}
+                            {ev.meeting_link && (
+                              <a href={ev.meeting_link} target="_blank" rel="noopener noreferrer"
+                                className="text-xs text-blue-500 flex items-center gap-1 mt-0.5 hover:underline">
+                                <LinkIcon className="h-3 w-3" />קישור לפגישה
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                        {ev.type === "meeting" && user?.role === "admin" && (
+                          <div className="flex gap-1 shrink-0">
+                            <button onClick={() => { setEditMeeting(ev.raw); setShowMeetingForm(true); }}
+                              className="p-1 rounded hover:bg-[#f1f5f9] text-[#64748b]"><Pencil className="h-3.5 w-3.5" /></button>
+                            <button onClick={() => handleDeleteMeeting(ev.id)}
+                              className="p-1 rounded hover:bg-red-50 text-red-400"><Trash2 className="h-3.5 w-3.5" /></button>
+                          </div>
+                        )}
+                      </div>
+                      {ev.notes && <p className="text-xs text-[#94a3b8] mt-1.5 pr-4">{ev.notes}</p>}
+                    </div>
+                  ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </>
+  );
+
   return (
     <div>
       <Header title="לוח שנה" />
@@ -622,198 +737,112 @@ export default function CalendarPage() {
           </div>
 
           {/* ── Sidebar ── */}
-          <div
-            className={cn(
-              sidebarMode === "pinned"
-                ? "space-y-3"
-                : "fixed z-50 w-[260px] bg-white rounded-2xl shadow-2xl border border-[#e2e8f0] overflow-hidden"
-            )}
-            style={sidebarMode === "floating" ? { left: floatPos.x, top: floatPos.y } : undefined}
-          >
-            {sidebarMode === "floating" && (
-              <div
-                onMouseDown={onDragStart}
-                className="flex items-center justify-between px-3 py-2.5 bg-[#0f172a] cursor-grab active:cursor-grabbing select-none border-b border-white/5"
-              >
-                <div className="flex items-center gap-2">
-                  <span className="text-white/25 text-sm tracking-widest">⠿⠿</span>
-                  <span className="text-[11px] font-bold text-white/60 uppercase tracking-wide">לוח צד</span>
-                </div>
-                <div className="relative">
-                  <button onClick={e => { e.stopPropagation(); setShowSidebarMenu(v => !v); }}
-                    className="p-1 rounded hover:bg-white/10 text-white/50 transition-colors">
-                    <MoreVertical className="h-4 w-4" />
-                  </button>
-                  {showSidebarMenu && (
-                    <>
-                      <div className="fixed inset-0 z-10" onClick={() => setShowSidebarMenu(false)} />
-                      <div className="absolute left-0 top-full mt-1 w-44 bg-white rounded-xl shadow-xl border border-[#e2e8f0] z-20 overflow-hidden" dir="rtl">
-                        <button onClick={() => { setSidebarMode("pinned"); setShowSidebarMenu(false); }}
-                          className="w-full text-right px-3 py-2.5 text-sm text-[#374151] hover:bg-[#f8fafc] flex items-center gap-2.5 transition-colors">
-                          📌 הצמד ללוח
-                        </button>
-                        <button onClick={() => setShowSidebarMenu(false)}
-                          className="w-full text-right px-3 py-2.5 text-sm hover:bg-[#f8fafc] flex items-center gap-2.5 border-t border-[#f8fafc] font-semibold text-[#16a34a] transition-colors">
-                          ✓ רחף
-                        </button>
-                      </div>
-                    </>
-                  )}
-                </div>
-              </div>
-            )}
-            <div className={cn(sidebarMode === "floating" ? "p-3 space-y-3 max-h-[calc(100vh-180px)] overflow-y-auto" : "space-y-3")}>
-            {sidebarMode === "pinned" && (
-              <div className="flex items-center justify-between px-0.5">
-                <span className="text-[9px] font-bold uppercase tracking-widest text-[#94a3b8]">לוח צד</span>
-                <div className="relative">
-                  <button onClick={e => { e.stopPropagation(); setShowSidebarMenu(v => !v); }}
-                    className="p-1 rounded hover:bg-[#e2e8f0] text-[#94a3b8] transition-colors">
-                    <MoreVertical className="h-3.5 w-3.5" />
-                  </button>
-                  {showSidebarMenu && (
-                    <>
-                      <div className="fixed inset-0 z-10" onClick={() => setShowSidebarMenu(false)} />
-                      <div className="absolute left-0 top-full mt-1 w-44 bg-white rounded-xl shadow-xl border border-[#e2e8f0] z-20 overflow-hidden" dir="rtl">
-                        <button onClick={() => setShowSidebarMenu(false)}
-                          className="w-full text-right px-3 py-2.5 text-sm hover:bg-[#f8fafc] flex items-center gap-2.5 font-semibold text-[#16a34a] transition-colors">
-                          ✓ מוצמד ללוח
-                        </button>
-                        <button onClick={() => { setSidebarMode("floating"); setShowSidebarMenu(false); setFloatPos({ x: 20, y: 100 }); }}
-                          className="w-full text-right px-3 py-2.5 text-sm text-[#374151] hover:bg-[#f8fafc] flex items-center gap-2.5 border-t border-[#f8fafc] transition-colors">
-                          🪟 רחף
-                        </button>
-                      </div>
-                    </>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* Legend — hover flyout, fixed on the left edge of the screen */}
-            <div
-              className="fixed left-4 top-1/2 -translate-y-1/2 z-40"
-              onMouseEnter={() => setShowLegend(true)}
-              onMouseLeave={() => setShowLegend(false)}
-            >
+          {sidebarMode === "hidden" ? (
+            <>
               <button
-                className="w-8 h-8 rounded-full bg-white border border-[#e2e8f0] shadow-sm flex items-center justify-center text-[#64748b] hover:bg-[#f8fafc] transition-colors"
-                title="מקרא"
+                onClick={() => setHiddenPanelOpen(v => !v)}
+                className="fixed left-4 top-1/2 -translate-y-1/2 z-40 w-8 h-8 rounded-full bg-white border border-[#e2e8f0] shadow-sm flex items-center justify-center text-[#64748b] hover:bg-[#f8fafc] transition-colors"
+                title="לוח צד"
               >
                 <MoreVertical className="h-4 w-4" />
               </button>
-              {showLegend && (
-                <div className="absolute left-full top-1/2 -translate-y-1/2 ml-2 w-48 bg-white rounded-xl shadow-xl border border-[#e2e8f0] p-3 space-y-2" dir="rtl">
-                  <p className="font-semibold text-[#0f172a] text-sm mb-1">מקרא</p>
-                  {[
-                    { color:"#f59e0b", label:"משימות לביצוע" },
-                    { color:"#ef4444", label:"משימות באיחור" },
-                    { color:"#3b82f6", label:"פגישות" },
-                    { color:"#8b5cf6", label:"מועדי ישראל" },
-                  ].map(({ color, label }) => (
-                    <div key={label} className="flex items-center gap-2 text-sm">
-                      <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: color }} />
-                      <span className="text-[#64748b]">{label}</span>
+              {hiddenPanelOpen && (
+                <>
+                  <div className="fixed inset-0 z-30" onClick={() => setHiddenPanelOpen(false)} />
+                  <div className="fixed left-14 top-1/2 -translate-y-1/2 z-40 w-[280px] max-h-[80vh] overflow-y-auto space-y-3 bg-transparent" dir="rtl">
+                    <div className="flex items-center justify-between px-0.5">
+                      <span className="text-[9px] font-bold uppercase tracking-widest text-[#94a3b8] bg-white rounded px-1.5 py-0.5">לוח צד</span>
+                      <button onClick={() => { setSidebarMode("pinned"); setHiddenPanelOpen(false); }}
+                        className="text-[10px] text-[#16a34a] hover:underline bg-white rounded px-1.5 py-0.5 font-semibold">
+                        📌 הצמד ללוח
+                      </button>
                     </div>
-                  ))}
+                    {renderSidebarPanels()}
+                  </div>
+                </>
+              )}
+            </>
+          ) : (
+            <div
+              className={cn(
+                sidebarMode === "pinned"
+                  ? "space-y-3"
+                  : "fixed z-50 w-[260px] bg-white rounded-2xl shadow-2xl border border-[#e2e8f0] overflow-hidden"
+              )}
+              style={sidebarMode === "floating" ? { left: floatPos.x, top: floatPos.y } : undefined}
+            >
+              {sidebarMode === "floating" && (
+                <div
+                  onMouseDown={onDragStart}
+                  className="flex items-center justify-between px-3 py-2.5 bg-[#0f172a] cursor-grab active:cursor-grabbing select-none border-b border-white/5"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="text-white/25 text-sm tracking-widest">⠿⠿</span>
+                    <span className="text-[11px] font-bold text-white/60 uppercase tracking-wide">לוח צד</span>
+                  </div>
+                  <div className="relative">
+                    <button onClick={e => { e.stopPropagation(); setShowSidebarMenu(v => !v); }}
+                      className="p-1 rounded hover:bg-white/10 text-white/50 transition-colors">
+                      <MoreVertical className="h-4 w-4" />
+                    </button>
+                    {showSidebarMenu && (
+                      <>
+                        <div className="fixed inset-0 z-10" onClick={() => setShowSidebarMenu(false)} />
+                        <div className="absolute left-0 top-full mt-1 w-44 bg-white rounded-xl shadow-xl border border-[#e2e8f0] z-20 overflow-hidden" dir="rtl">
+                          <button onClick={() => { setSidebarMode("pinned"); setShowSidebarMenu(false); }}
+                            className="w-full text-right px-3 py-2.5 text-sm text-[#374151] hover:bg-[#f8fafc] flex items-center gap-2.5 transition-colors">
+                            📌 הצמד ללוח
+                          </button>
+                          <button onClick={() => setShowSidebarMenu(false)}
+                            className="w-full text-right px-3 py-2.5 text-sm hover:bg-[#f8fafc] flex items-center gap-2.5 border-t border-[#f8fafc] font-semibold text-[#16a34a] transition-colors">
+                            ✓ רחף
+                          </button>
+                          <button onClick={() => { setSidebarMode("hidden"); setShowSidebarMenu(false); }}
+                            className="w-full text-right px-3 py-2.5 text-sm text-[#374151] hover:bg-[#f8fafc] flex items-center gap-2.5 border-t border-[#f8fafc] transition-colors">
+                            🫥 הסתר
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
                 </div>
               )}
-            </div>
-
-            {/* Month stats — compact horizontal */}
-            <div className="bg-white rounded-xl border border-[#f1f5f9] p-3">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-[#94a3b8] mb-2 px-1">סיכום חודש</p>
-              <div className="grid grid-cols-3 gap-1.5">
-                {[
-                  { color:"#f59e0b", label:"משימות", count: events.filter(e=>e.type==="task").length },
-                  { color:"#ef4444", label:"באיחור",  count: events.filter(e=>e.type==="overdue").length },
-                  { color:"#3b82f6", label:"פגישות",  count: events.filter(e=>e.type==="meeting").length },
-                ].map(({ color, label, count }) => (
-                  <div key={label} className="flex flex-col items-center py-2 rounded-lg bg-[#f8fafc] border border-[#f1f5f9]">
-                    <span className="text-xl font-bold text-[#0f172a] leading-none">{count}</span>
-                    <div className="flex items-center gap-1 mt-1">
-                      <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: color }} />
-                      <span className="text-[10px] text-[#64748b]">{label}</span>
-                    </div>
+              <div className={cn(sidebarMode === "floating" ? "p-3 space-y-3 max-h-[calc(100vh-180px)] overflow-y-auto" : "space-y-3")}>
+              {sidebarMode === "pinned" && (
+                <div className="flex items-center justify-between px-0.5">
+                  <span className="text-[9px] font-bold uppercase tracking-widest text-[#94a3b8]">לוח צד</span>
+                  <div className="relative">
+                    <button onClick={e => { e.stopPropagation(); setShowSidebarMenu(v => !v); }}
+                      className="p-1 rounded hover:bg-[#e2e8f0] text-[#94a3b8] transition-colors">
+                      <MoreVertical className="h-3.5 w-3.5" />
+                    </button>
+                    {showSidebarMenu && (
+                      <>
+                        <div className="fixed inset-0 z-10" onClick={() => setShowSidebarMenu(false)} />
+                        <div className="absolute left-0 top-full mt-1 w-44 bg-white rounded-xl shadow-xl border border-[#e2e8f0] z-20 overflow-hidden" dir="rtl">
+                          <button onClick={() => setShowSidebarMenu(false)}
+                            className="w-full text-right px-3 py-2.5 text-sm hover:bg-[#f8fafc] flex items-center gap-2.5 font-semibold text-[#16a34a] transition-colors">
+                            ✓ מוצמד ללוח
+                          </button>
+                          <button onClick={() => { setSidebarMode("floating"); setShowSidebarMenu(false); setFloatPos({ x: 20, y: 100 }); }}
+                            className="w-full text-right px-3 py-2.5 text-sm text-[#374151] hover:bg-[#f8fafc] flex items-center gap-2.5 border-t border-[#f8fafc] transition-colors">
+                            🪟 רחף
+                          </button>
+                          <button onClick={() => { setSidebarMode("hidden"); setShowSidebarMenu(false); }}
+                            className="w-full text-right px-3 py-2.5 text-sm text-[#374151] hover:bg-[#f8fafc] flex items-center gap-2.5 border-t border-[#f8fafc] transition-colors">
+                            🫥 הסתר
+                          </button>
+                        </div>
+                      </>
+                    )}
                   </div>
-                ))}
+                </div>
+              )}
+
+              {renderSidebarPanels()}
               </div>
             </div>
-
-            {/* Selected day panel */}
-            {selectedDay && (
-              <div className="bg-white rounded-xl border border-[#f1f5f9] overflow-hidden">
-                <div className="px-4 py-3 border-b border-[#f1f5f9] flex items-center justify-between">
-                  <div>
-                    <h3 className="font-semibold text-[#0f172a] text-sm">
-                      {DAYS_HE[new Date(selectedDay+"T12:00:00").getDay()]}, {fmt(selectedDay)}
-                    </h3>
-                    <p className="text-[10px] text-[#94a3b8] mt-0.5">
-                      {getHebrewDateStr(new Date(selectedDay + "T12:00:00"))}
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => { setEditMeeting(null); setFormDefaultDate(selectedDay); setShowMeetingForm(true); }}
-                    className="text-[#16a34a] hover:bg-[#f0fdf4] p-1 rounded" title="פגישה חדשה">
-                    <Plus className="h-4 w-4" />
-                  </button>
-                </div>
-                <div className="p-3">
-                  {selectedEvents.length === 0 ? (
-                    <p className="text-sm text-[#94a3b8] text-center py-4">אין אירועים</p>
-                  ) : (
-                    <div className="space-y-2">
-                      {selectedEvents
-                        .sort((a,b) => (a.time||"").localeCompare(b.time||""))
-                        .map(ev => (
-                          <div key={ev.id} className="p-2.5 rounded-lg border border-[#f1f5f9] hover:border-[#e2e8f0]">
-                            <div className="flex items-start justify-between gap-2">
-                              <div className="flex items-start gap-2">
-                                <div className="w-2 h-2 rounded-full mt-1.5 shrink-0" style={{ backgroundColor: ev.color }} />
-                                <div>
-                                  {(ev.type === "task" || ev.type === "overdue") ? (
-                                    <Link href={`/tasks/${ev.id}`} className="text-sm font-medium text-[#0f172a] hover:text-[#16a34a] hover:underline">{ev.title}</Link>
-                                  ) : (
-                                    <p className="text-sm font-medium text-[#0f172a]">{ev.title}</p>
-                                  )}
-                                  {ev.time && (
-                                    <p className="text-xs text-[#64748b] flex items-center gap-1 mt-0.5">
-                                      <Clock className="h-3 w-3" />{ev.time}{ev.endTime ? ` – ${ev.endTime}` : ""}
-                                    </p>
-                                  )}
-                                  {ev.customer_name && <p className="text-xs text-[#94a3b8] mt-0.5">{ev.customer_name}</p>}
-                                  {ev.location && (
-                                    <p className="text-xs text-[#94a3b8] flex items-center gap-1 mt-0.5">
-                                      <MapPin className="h-3 w-3" />{ev.location}
-                                    </p>
-                                  )}
-                                  {ev.meeting_link && (
-                                    <a href={ev.meeting_link} target="_blank" rel="noopener noreferrer"
-                                      className="text-xs text-blue-500 flex items-center gap-1 mt-0.5 hover:underline">
-                                      <LinkIcon className="h-3 w-3" />קישור לפגישה
-                                    </a>
-                                  )}
-                                </div>
-                              </div>
-                              {ev.type === "meeting" && user?.role === "admin" && (
-                                <div className="flex gap-1 shrink-0">
-                                  <button onClick={() => { setEditMeeting(ev.raw); setShowMeetingForm(true); }}
-                                    className="p-1 rounded hover:bg-[#f1f5f9] text-[#64748b]"><Pencil className="h-3.5 w-3.5" /></button>
-                                  <button onClick={() => handleDeleteMeeting(ev.id)}
-                                    className="p-1 rounded hover:bg-red-50 text-red-400"><Trash2 className="h-3.5 w-3.5" /></button>
-                                </div>
-                              )}
-                            </div>
-                            {ev.notes && <p className="text-xs text-[#94a3b8] mt-1.5 pr-4">{ev.notes}</p>}
-                          </div>
-                        ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-            </div>
-          </div>
+          )}
         </div>
       </div>
 
