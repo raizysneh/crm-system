@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import {
-  ChevronRight, ChevronLeft, ChevronDown, MoreVertical, Plus, CheckSquare, Users,
+  ChevronRight, ChevronLeft, MoreVertical, Plus, CheckSquare, Users,
   Clock, MapPin, Link as LinkIcon, Pencil, Trash2, CalendarDays,
   List, Grid3X3,
 } from "lucide-react";
@@ -690,17 +690,21 @@ export default function CalendarPage() {
               </div>
             )}
 
-            {/* Legend — collapsible */}
-            <div className="bg-white rounded-xl border border-[#f1f5f9] overflow-hidden">
+            {/* Legend — hover flyout, fixed on the left edge of the screen */}
+            <div
+              className="fixed left-4 top-1/2 -translate-y-1/2 z-40"
+              onMouseEnter={() => setShowLegend(true)}
+              onMouseLeave={() => setShowLegend(false)}
+            >
               <button
-                onClick={() => setShowLegend(v => !v)}
-                className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-[#f8fafc] transition-colors"
+                className="w-8 h-8 rounded-full bg-white border border-[#e2e8f0] shadow-sm flex items-center justify-center text-[#64748b] hover:bg-[#f8fafc] transition-colors"
+                title="מקרא"
               >
-                <span className="font-semibold text-[#0f172a] text-sm">מקרא</span>
-                <ChevronDown className={cn("h-4 w-4 text-[#94a3b8] transition-transform duration-200", showLegend && "rotate-180")} />
+                <MoreVertical className="h-4 w-4" />
               </button>
               {showLegend && (
-                <div className="border-t border-[#f1f5f9] px-4 py-3 space-y-2">
+                <div className="absolute left-full top-1/2 -translate-y-1/2 ml-2 w-48 bg-white rounded-xl shadow-xl border border-[#e2e8f0] p-3 space-y-2" dir="rtl">
+                  <p className="font-semibold text-[#0f172a] text-sm mb-1">מקרא</p>
                   {[
                     { color:"#f59e0b", label:"משימות לביצוע" },
                     { color:"#ef4444", label:"משימות באיחור" },

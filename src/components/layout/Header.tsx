@@ -11,7 +11,7 @@ interface Notification {
   id: string;
   user_id: string;
   title: string;
-  body: string | null;
+  message: string | null;
   type: string;
   is_read: boolean;
   created_at: string;
@@ -193,8 +193,8 @@ export default function Header({ title }: HeaderProps) {
                         )}>
                           {n.title}
                         </p>
-                        {n.body && (
-                          <p className="text-xs text-[#64748b] mt-0.5 line-clamp-2">{n.body}</p>
+                        {n.message && (
+                          <p className="text-xs text-[#64748b] mt-0.5 line-clamp-2">{n.message}</p>
                         )}
                         <p className="text-[10px] text-[#94a3b8] mt-1">{formatDateTime(n.created_at)}</p>
                       </div>

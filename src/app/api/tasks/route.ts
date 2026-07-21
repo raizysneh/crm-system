@@ -110,15 +110,16 @@ export async function PATCH(req: NextRequest) {
         db.from("users").select("id, email").eq("role", "admin").eq("status", "active"),
       ]);
       if (task && admins?.length) {
-        await db.from("notifications").insert(
+        const { error: notifErr } = await db.from("notifications").insert(
           admins.map(a => ({
             user_id: a.id,
             type: "task",
             title: "בקשת מחיקת משימה",
-            body: `בקשה למחוק את המשימה "${task.title}"`,
+            message: `בקשה למחוק את המשימה "${task.title}"`,
             is_read: false,
           }))
         );
+        if (notifErr) console.warn("[tasks] deletion-request notification insert failed:", notifErr.message);
 
         const emails = admins.map(a => a.email).filter(Boolean);
         if (emails.length) {
@@ -148,24 +149,26 @@ export async function PATCH(req: NextRequest) {
 
       // Notify assigned user on status change (if not the one changing it)
       if (task?.assigned_user_id && taskData.status === "completed") {
-        await db.from("notifications").insert({
+        const { error: e1 } = await db.from("notifications").insert({
           user_id: task.assigned_user_id,
           type: "task",
           title: "משימה הושלמה",
-          body: `המשימה "${task.title}" סומנה כהושלמה`,
+          message: `המשימה "${task.title}" סומנה כהושלמה`,
           is_read: false,
-        }).then(() => {});
+        });
+        if (e1) console.warn("[tasks] status-change notification insert failed:", e1.message);
       }
 
       // Notify creator when assigned user updates status
       if (task?.created_by && task.created_by !== task.assigned_user_id) {
-        await db.from("notifications").insert({
+        const { error: e2 } = await db.from("notifications").insert({
           user_id: task.created_by,
           type: "task",
           title: taskData.status === "completed" ? "משימה הושלמה" : "עדכון משימה",
-          body: `"${task.title}" עודכנה לסטטוס: ${taskData.status}`,
+          message: `"${task.title}" עודכנה לסטטוס: ${taskData.status}`,
           is_read: false,
-        }).then(() => {});
+        });
+        if (e2) console.warn("[tasks] status-change notification insert failed:", e2.message);
       }
     }
 
