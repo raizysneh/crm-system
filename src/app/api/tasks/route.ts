@@ -101,6 +101,25 @@ export async function PATCH(req: NextRequest) {
     const { error } = await db.from("tasks").update(taskData).eq("id", id);
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
+    // Notify every admin when an employee requests a task be deleted
+    if (taskData.pending_deletion === true) {
+      const [{ data: task }, { data: admins }] = await Promise.all([
+        db.from("tasks").select("title").eq("id", id).single(),
+        db.from("users").select("id").eq("role", "admin").eq("status", "active"),
+      ]);
+      if (task && admins?.length) {
+        await db.from("notifications").insert(
+          admins.map(a => ({
+            user_id: a.id,
+            type: "task",
+            title: "בקשת מחיקת משימה",
+            body: `בקשה למחוק את המשימה "${task.title}"`,
+            is_read: false,
+          }))
+        );
+      }
+    }
+
     // Notifications and recurring logic on status change
     if (taskData.status) {
       const { data: task } = await db.from("tasks").select("*").eq("id", id).single();

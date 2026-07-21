@@ -39,8 +39,12 @@ export default function TaskCard({ task, onStatusChange, onRefresh, onEdit }: Pr
 
   const handleRequestDelete = async () => {
     if (!confirm("שלח בקשת מחיקה למנהל?")) return;
-    const { error } = await supabase.from("tasks").update({ pending_deletion: true }).eq("id", task.id);
-    if (error) toast.error("שגיאה בשליחת הבקשה");
+    const res = await fetch("/api/tasks", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...(await authHeader()) },
+      body: JSON.stringify({ id: task.id, pending_deletion: true }),
+    });
+    if (!res.ok) toast.error("שגיאה בשליחת הבקשה");
     else { toast.success("בקשת המחיקה נשלחה למנהל"); onRefresh(); }
   };
 
