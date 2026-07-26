@@ -30,12 +30,16 @@ export async function POST(req: NextRequest) {
     if (!msgs?.length) return NextResponse.json({ ok: true });
 
     // Upsert read records (ignore duplicates)
-    await admin()
+    const { error: upsertErr } = await admin()
       .from("chat_message_reads")
       .upsert(
         msgs.map(m => ({ message_id: m.id, user_id })),
         { onConflict: "message_id,user_id", ignoreDuplicates: true }
       );
+    if (upsertErr) {
+      console.error("[chat-reads] upsert failed:", upsertErr.message);
+      return NextResponse.json({ error: upsertErr.message }, { status: 500 });
+    }
 
     return NextResponse.json({ ok: true, marked: msgs.length });
   } catch (e: any) {
