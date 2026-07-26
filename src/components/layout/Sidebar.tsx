@@ -9,9 +9,10 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/authStore";
+import { useChatStore } from "@/store/chatStore";
 import { supabase } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 type NavItem = { href: string; icon: any; label: string };
 type NavGroup = { label: string; items: NavItem[] };
@@ -89,6 +90,13 @@ export default function Sidebar() {
   const { user }  = useAuthStore();
   const router    = useRouter();
   const [collapsed, setCollapsed] = useState(false);
+  const { totalUnread, refresh, ensureSubscribed } = useChatStore();
+
+  useEffect(() => {
+    if (!user) return;
+    refresh(user.id);
+    ensureSubscribed(user.id);
+  }, [user?.id]);
 
   const groups = user?.role === "admin"
     ? adminGroups
@@ -167,7 +175,15 @@ export default function Sidebar() {
                         <span className="absolute right-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-[#16a34a] rounded-full" />
                       )}
                       <item.icon className={cn("shrink-0", collapsed ? "h-5 w-5" : "h-4 w-4")} />
-                      {!collapsed && <span>{item.label}</span>}
+                      {!collapsed && <span className="flex-1">{item.label}</span>}
+                      {item.href === "/chat" && totalUnread > 0 && (
+                        <span className={cn(
+                          "flex items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-bold leading-none shrink-0",
+                          collapsed ? "absolute -top-0.5 -left-0.5 w-4 h-4" : "min-w-[18px] h-[18px] px-1"
+                        )}>
+                          {totalUnread > 99 ? "99+" : totalUnread}
+                        </span>
+                      )}
 
                       {/* Tooltip when collapsed */}
                       {collapsed && (

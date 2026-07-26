@@ -26,15 +26,11 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    // Two legitimate callers: (1) the public self-registration form on the
-    // login page — no session yet, always creates a plain "employee" account;
-    // (2) an admin creating a user from Settings, who may pick any role.
-    // Anyone already logged in as employee/client is neither — reject.
+    // Only an admin may create users — there is no public self-registration.
     const authedUser = await getAuthedUser(req);
-    if (authedUser && authedUser.role !== "admin") {
+    if (!authedUser || authedUser.role !== "admin") {
       return NextResponse.json({ error: "אין הרשאה" }, { status: 403 });
     }
-    const isAdminCaller = authedUser?.role === "admin";
 
     const body = await req.json();
     const { email, password, full_name, role, phone } = body;
@@ -79,7 +75,7 @@ export async function POST(req: NextRequest) {
       id: authUserId,
       full_name,
       email,
-      role: isAdminCaller ? (role || "employee") : "employee",
+      role: role || "employee",
       phone: phone || null,
       status: "active",
     });

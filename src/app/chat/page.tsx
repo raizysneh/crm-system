@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { supabase, authHeader } from "@/lib/supabase/client";
 import { ChatConversation, ChatMessage, User } from "@/types";
 import { useAuthStore } from "@/store/authStore";
+import { useChatStore } from "@/store/chatStore";
 import { toast } from "sonner";
 import { formatTime, cn } from "@/lib/utils";
 
@@ -36,6 +37,7 @@ function aggregateReactions(rawReactions: any[]): Record<string, string[]> {
 
 export default function ChatPage() {
   const { user } = useAuthStore();
+  const { unreadByConv, refresh: refreshUnread, clearConv: clearConvUnread } = useChatStore();
   const [conversations, setConversations] = useState<ChatConversation[]>([]);
   const [activeConv, setActiveConv]       = useState<ChatConversation | null>(null);
   const [messages, setMessages]           = useState<ChatMessage[]>([]);
@@ -286,6 +288,7 @@ export default function ChatPage() {
 
   const loadConversations = async () => {
     if (!user) return;
+    refreshUnread(user.id);
 
     if (user.role === "admin") {
       // Admin sees all conversations
@@ -329,6 +332,7 @@ export default function ChatPage() {
     const edited = new Set<string>();
     // Mark messages as read + load read receipts
     if (data?.length && user) {
+      clearConvUnread(convId);
       authHeader().then(h => fetch("/api/chat-reads", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...h },
@@ -442,19 +446,19 @@ export default function ChatPage() {
     setReplyTo(null);
     if (textareaRef.current) textareaRef.current.style.height = "40px";
     try {
-      const { data: inserted } = await supabase.from("chat_messages").insert({
-        conversation_id: activeConv.id,
-        sender_id: user.id,
-        content,
-        message_type: "text",
-        reply_to: replyToId,
-      }).select("*, sender:users(id, full_name, avatar_url)").single();
+      const res = await fetch("/api/chat-messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(await authHeader()) },
+        body: JSON.stringify({ conversation_id: activeConv.id, content, message_type: "text", reply_to: replyToId }),
+      });
+      const inserted = await res.json();
       // Add immediately to state — don't wait for realtime event
-      if (inserted) {
+      if (res.ok && inserted?.id) {
         setMessages(prev => prev.some(m => m.id === inserted.id) ? prev : [...prev, inserted]);
         lastMsgTsRef.current = inserted.created_at;
+      } else {
+        toast.error("שגיאה בשליחה");
       }
-      await supabase.from("chat_conversations").update({ updated_at: new Date().toISOString() }).eq("id", activeConv.id);
     } catch { toast.error("שגיאה בשליחה"); }
     finally { setSending(false); }
   };
@@ -507,15 +511,14 @@ export default function ChatPage() {
     const { data: { publicUrl } } = supabase.storage.from("attachments").getPublicUrl(path);
     const replyToId = replyTo?.id || null;
     setReplyTo(null);
-    const { data: inserted } = await supabase.from("chat_messages").insert({
-      conversation_id: activeConv.id,
-      sender_id: user.id,
-      content: publicUrl,
-      message_type: "voice",
-      reply_to: replyToId,
-    }).select("*, sender:users(id, full_name, avatar_url)").single();
-    if (inserted) setMessages(prev => prev.some(m => m.id === inserted.id) ? prev : [...prev, inserted]);
-    await supabase.from("chat_conversations").update({ updated_at: new Date().toISOString() }).eq("id", activeConv.id);
+    const res = await fetch("/api/chat-messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(await authHeader()) },
+      body: JSON.stringify({ conversation_id: activeConv.id, content: publicUrl, message_type: "voice", reply_to: replyToId }),
+    });
+    const inserted = await res.json();
+    if (res.ok && inserted?.id) setMessages(prev => prev.some(m => m.id === inserted.id) ? prev : [...prev, inserted]);
+    else toast.error("שגיאה בשליחה");
   };
 
   const togglePlay = (msgId: string, url: string) => {
@@ -656,6 +659,16 @@ export default function ChatPage() {
     }
   };
 
+  const handleDeleteConversation = async (conv: ChatConversation, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm(`למחוק את השיחה "${getConvName(conv)}" לצמיתות? כל ההודעות יימחקו.`)) return;
+    const res = await fetch(`/api/chat-conversations?id=${conv.id}`, { method: "DELETE", headers: await authHeader() });
+    if (!res.ok) { toast.error("שגיאה במחיקת השיחה"); return; }
+    if (activeConv?.id === conv.id) setActiveConv(null);
+    toast.success("השיחה נמחקה");
+    loadConversations();
+  };
+
   const handleRemoveMember = async (userId: string) => {
     if (!activeConv) return;
     if (!confirm("להסיר חבר מהקבוצה?")) return;
@@ -747,26 +760,42 @@ export default function ChatPage() {
                 <MessageSquare className="h-10 w-10 mx-auto mb-2 opacity-20" />
                 <p className="text-sm">אין שיחות</p>
               </div>
-            ) : filteredConvs.map(conv => (
-              <button key={conv.id} onClick={() => { setActiveConv(conv); setReplyTo(null); setMsgSearch(""); setShowMsgSearch(false); setShowGroupSettings(false); }}
-                className={cn(
-                  "flex items-center gap-3 w-full px-3 py-2.5 text-right transition-colors relative border-r-2",
-                  activeConv?.id === conv.id
-                    ? "bg-[#f0fdf4] border-[#16a34a]"
-                    : "hover:bg-white border-transparent"
-                )}>
-                <div className={cn("w-10 h-10 rounded-full flex items-center justify-center text-white font-bold shrink-0 text-sm shadow-sm",
-                  conv.type === "group" ? "bg-gradient-to-br from-blue-400 to-blue-600" : "bg-gradient-to-br from-[#16a34a] to-[#15803d]")}>
-                  {conv.type === "group" ? <Users className="h-5 w-5" /> : getConvName(conv).charAt(0)}
+            ) : filteredConvs.map(conv => {
+              const unread = unreadByConv[conv.id] || 0;
+              return (
+                <div key={conv.id}
+                  role="button" tabIndex={0}
+                  onClick={() => { setActiveConv(conv); setReplyTo(null); setMsgSearch(""); setShowMsgSearch(false); setShowGroupSettings(false); }}
+                  className={cn(
+                    "flex items-center gap-3 w-full px-3 py-2.5 text-right transition-colors relative border-r-2 cursor-pointer group/conv",
+                    activeConv?.id === conv.id
+                      ? "bg-[#f0fdf4] border-[#16a34a]"
+                      : "hover:bg-white border-transparent"
+                  )}>
+                  <div className={cn("w-10 h-10 rounded-full flex items-center justify-center text-white font-bold shrink-0 text-sm shadow-sm",
+                    conv.type === "group" ? "bg-gradient-to-br from-blue-400 to-blue-600" : "bg-gradient-to-br from-[#16a34a] to-[#15803d]")}>
+                    {conv.type === "group" ? <Users className="h-5 w-5" /> : getConvName(conv).charAt(0)}
+                  </div>
+                  <div className="flex-1 min-w-0 text-right">
+                    <p className={cn("font-semibold text-sm truncate", activeConv?.id === conv.id ? "text-[#0f172a]" : "text-[#374151]")}>{getConvName(conv)}</p>
+                    <p className="text-xs text-[#94a3b8] truncate">
+                      {conv.type === "group" ? `קבוצה · ${conv.participants?.length ?? 0} משתתפים` : "שיחה פרטית"}
+                    </p>
+                  </div>
+                  {unread > 0 && (
+                    <span className="flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-[#16a34a] text-white text-[10px] font-bold shrink-0 group-hover/conv:opacity-0 transition-opacity">
+                      {unread > 99 ? "99+" : unread}
+                    </span>
+                  )}
+                  {user?.role === "admin" && (
+                    <button onClick={e => handleDeleteConversation(conv, e)} title="מחק שיחה"
+                      className="absolute left-2 opacity-0 group-hover/conv:opacity-100 p-1.5 rounded-lg hover:bg-red-50 text-red-400 transition-opacity shrink-0">
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  )}
                 </div>
-                <div className="flex-1 min-w-0 text-right">
-                  <p className={cn("font-semibold text-sm truncate", activeConv?.id === conv.id ? "text-[#0f172a]" : "text-[#374151]")}>{getConvName(conv)}</p>
-                  <p className="text-xs text-[#94a3b8] truncate">
-                    {conv.type === "group" ? `קבוצה · ${conv.participants?.length ?? 0} משתתפים` : "שיחה פרטית"}
-                  </p>
-                </div>
-              </button>
-            ))}
+              );
+            })}
           </div>
         </div>
 
