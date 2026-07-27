@@ -1,8 +1,9 @@
 "use client";
 
-import { Bell, Search, CheckCheck, X, Clock, CheckSquare, Users, AlertTriangle } from "lucide-react";
+import { Bell, Search, CheckCheck, X, Clock, CheckSquare, Users, AlertTriangle, LogOut } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
 import { useState, useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { formatDateTime } from "@/lib/utils";
 import { cn } from "@/lib/utils";
@@ -31,10 +32,18 @@ interface HeaderProps {
 
 export default function Header({ title }: HeaderProps) {
   const { user } = useAuthStore();
+  const router = useRouter();
   const [notifOpen, setNotifOpen] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const panelRef = useRef<HTMLDivElement>(null);
+  const userMenuRef = useRef<HTMLDivElement>(null);
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    router.push("/login");
+  };
 
   useEffect(() => {
     if (user) loadNotifications();
@@ -51,6 +60,17 @@ export default function Header({ title }: HeaderProps) {
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [notifOpen]);
+
+  useEffect(() => {
+    if (!userMenuOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+        setUserMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [userMenuOpen]);
 
   // Realtime subscription
   useEffect(() => {
@@ -233,16 +253,33 @@ export default function Header({ title }: HeaderProps) {
       </div>
 
       {/* User */}
-      <div className="flex items-center gap-2">
-        <div className="w-8 h-8 bg-[#16a34a] rounded-full flex items-center justify-center text-white text-xs font-bold">
-          {user?.full_name?.charAt(0) || "?"}
-        </div>
-        <div className="hidden md:block">
-          <p className="text-sm font-medium text-[#0f172a] leading-tight">{user?.full_name}</p>
-          <p className="text-xs text-[#64748b]">
-            {user?.role === "admin" ? "מנהל מערכת" : user?.role === "employee" ? "עובד" : "לקוח"}
-          </p>
-        </div>
+      <div className="relative" ref={userMenuRef}>
+        <button
+          onClick={() => setUserMenuOpen(o => !o)}
+          className="flex items-center gap-2 rounded-lg p-1 pl-2 hover:bg-[#f1f5f9] transition-colors"
+        >
+          <div className="w-8 h-8 bg-[#16a34a] rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0">
+            {user?.full_name?.charAt(0) || "?"}
+          </div>
+          <div className="hidden md:block text-right">
+            <p className="text-sm font-medium text-[#0f172a] leading-tight">{user?.full_name}</p>
+            <p className="text-xs text-[#64748b]">
+              {user?.role === "admin" ? "מנהל מערכת" : user?.role === "employee" ? "עובד" : "לקוח"}
+            </p>
+          </div>
+        </button>
+
+        {userMenuOpen && (
+          <div className="absolute left-0 top-full mt-2 w-44 bg-white rounded-xl shadow-xl border border-[#e2e8f0] overflow-hidden z-50" dir="rtl">
+            <button
+              onClick={handleLogout}
+              className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-red-500 hover:bg-red-50 transition-colors"
+            >
+              <LogOut className="h-4 w-4" />
+              התנתק
+            </button>
+          </div>
+        )}
       </div>
     </header>
   );
