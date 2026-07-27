@@ -183,6 +183,7 @@ export interface ChatMessage {
   sender_id: string;
   content: string;
   message_type: "text" | "voice" | "file";
+  file_url?: string | null;
   is_edited: boolean;
   is_pinned: boolean;
   reply_to?: string;

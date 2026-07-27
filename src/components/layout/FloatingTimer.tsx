@@ -207,8 +207,9 @@ export default function FloatingTimer() {
 
   // ── Minimized circle ─────────────────────────────────────────────────────────
   if (minimized && timers.length > 0) {
+    const only = timers.length === 1 ? timers[0] : null;
     return (
-      <div className="fixed z-[9999]" style={{ left: pos.x, top: pos.y }} dir="rtl">
+      <div className="fixed z-[9999] group/mini" style={{ left: pos.x, top: pos.y }} dir="rtl">
         <button
           onClick={() => setMinimized(false)}
           title="הצג טיימרים"
@@ -227,6 +228,26 @@ export default function FloatingTimer() {
             </span>
           )}
         </button>
+
+        {/* Quick pause/stop — shown on hover, single-timer case */}
+        {only && (
+          <div className="absolute top-1/2 -translate-y-1/2 right-full mr-1.5 flex flex-col gap-1.5 opacity-0 group-hover/mini:opacity-100 transition-opacity">
+            <button
+              onClick={e => { e.stopPropagation(); only.is_paused ? resumeTimer(only.id) : pauseTimer(only.id); }}
+              title={only.is_paused ? "המשך" : "השהה"}
+              className="w-8 h-8 rounded-full bg-white shadow-lg border border-[#e2e8f0] flex items-center justify-center text-[#64748b] hover:bg-[#f8fafc] transition-colors"
+            >
+              {only.is_paused ? <Play className="h-3.5 w-3.5 fill-current" /> : <Pause className="h-3.5 w-3.5 fill-current" />}
+            </button>
+            <button
+              onClick={e => { e.stopPropagation(); handleStop(only); }}
+              title="עצור ושמור"
+              className="w-8 h-8 rounded-full bg-white shadow-lg border border-[#e2e8f0] flex items-center justify-center text-red-500 hover:bg-red-50 transition-colors"
+            >
+              <Square className="h-3 w-3 fill-current" />
+            </button>
+          </div>
+        )}
       </div>
     );
   }

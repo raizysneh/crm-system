@@ -5,6 +5,7 @@ import {
   Send, MessageSquare, Search, Smile, Pencil, Trash2,
   Pin, Users, X, Check, Plus, Reply, SearchIcon, Mic,
   StopCircle, Play, Pause, Settings, UserMinus, UserPlus, Film, Bell, BellOff,
+  Paperclip, FileText, Download,
 } from "lucide-react";
 import Header from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
@@ -94,6 +95,7 @@ export default function ChatPage() {
   const textareaRef     = useRef<HTMLTextAreaElement>(null);
   const msgSearchRef    = useRef<HTMLInputElement>(null);
   const gifFileRef      = useRef<HTMLInputElement>(null);
+  const fileAttachRef   = useRef<HTMLInputElement>(null);
   const usersRef        = useRef<User[]>([]);
   const activeConvRef   = useRef<ChatConversation | null>(null);
   const pollRef         = useRef<any>(null);
@@ -135,7 +137,8 @@ export default function ChatPage() {
         newMsgs.forEach((m: any) => {
           if (m.sender_id !== user.id && "Notification" in window && Notification.permission === "granted") {
             const body = m.content?.startsWith("__IMG__") ? "📎 תמונה/GIF"
-              : m.message_type === "voice" ? "🎤 הודעה קולית" : m.content;
+              : m.message_type === "voice" ? "🎤 הודעה קולית"
+              : m.message_type === "file" ? `📎 ${m.content}` : m.content;
             new Notification(m.sender?.full_name || "הודעה חדשה", { body, icon: "/favicon.ico", tag: m.conversation_id });
           }
         });
@@ -186,7 +189,8 @@ export default function ChatPage() {
           const senderName = sender?.full_name || "הודעה חדשה";
           const body = payload.new.content?.startsWith("__IMG__")
             ? "📎 תמונה/GIF"
-            : (payload.new.message_type === "voice" ? "🎤 הודעה קולית" : payload.new.content);
+            : payload.new.message_type === "voice" ? "🎤 הודעה קולית"
+            : payload.new.message_type === "file" ? `📎 ${payload.new.content}` : payload.new.content;
 
           // Always show in-app toast so user can navigate to chat
           const targetConv = conversations.find(c => c.id === payload.new.conversation_id);
@@ -226,6 +230,7 @@ export default function ChatPage() {
             if ("Notification" in window && Notification.permission === "granted") {
               const content = (msg as any).message_type === "voice"
                 ? "🎤 הודעה קולית"
+                : (msg as any).message_type === "file" ? `📎 ${msg.content}`
                 : (msg.content?.startsWith("__IMG__") ? "📎 תמונה/GIF" : msg.content);
               new Notification((senderFromList?.full_name || senderFallback?.full_name || "הודעה חדשה"), {
                 body: content,
@@ -434,6 +439,37 @@ export default function ChatPage() {
       toast.error(`שגיאה: ${err.message}`, { id: toastId });
     }
     if (gifFileRef.current) gifFileRef.current.value = "";
+  };
+
+  const handleFileAttach = async (file: File) => {
+    if (!activeConv || !user) return;
+    if (file.size > 20 * 1024 * 1024) { toast.error("הקובץ גדול מדי (מקסימום 20MB)"); return; }
+    const toastId = toast.loading("מעלה קובץ...");
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("bucket", "attachments");
+      form.append("path", `files/${activeConv.id}/${Date.now()}_${file.name.replace(/[^\w.\-]/g, "_")}`);
+
+      const res = await fetch("/api/upload", { method: "POST", body: form, headers: await authHeader() });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "שגיאה בהעלאה");
+
+      const replyToId = replyTo?.id || null;
+      setReplyTo(null);
+      const sendRes = await fetch("/api/chat-messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(await authHeader()) },
+        body: JSON.stringify({ conversation_id: activeConv.id, content: file.name, message_type: "file", file_url: json.url, reply_to: replyToId }),
+      });
+      const inserted = await sendRes.json();
+      if (!sendRes.ok || !inserted?.id) throw new Error(inserted.error || "שגיאה בשליחה");
+      setMessages(prev => prev.some(m => m.id === inserted.id) ? prev : [...prev, inserted]);
+      toast.success("הקובץ נשלח", { id: toastId });
+    } catch (err: any) {
+      toast.error(`שגיאה: ${err.message}`, { id: toastId });
+    }
+    if (fileAttachRef.current) fileAttachRef.current.value = "";
   };
 
   // ─── Send text ───────────────────────────────────────────────
@@ -963,13 +999,24 @@ export default function ChatPage() {
                                   <div className={cn("mb-2 px-2.5 py-1.5 rounded-lg text-xs border-r-2",
                                     isOwn ? "bg-[#15803d]/40 border-white/60 text-white/90" : "bg-[#f1f5f9] border-[#16a34a] text-[#374151]")}>
                                     <p className="font-semibold mb-0.5">{quotedMsg.sender?.full_name || "הודעה"}</p>
-                                    <p className="truncate">{(quotedMsg as any).message_type === "voice" ? "🎤 הודעה קולית" : quotedMsg.content}</p>
+                                    <p className="truncate">{(quotedMsg as any).message_type === "voice" ? "🎤 הודעה קולית" : (quotedMsg as any).message_type === "file" ? `📎 ${quotedMsg.content}` : quotedMsg.content}</p>
                                   </div>
                                 )}
 
                                 {/* GIF / image — detected by __IMG__ prefix */}
                                 {msg.content?.startsWith("__IMG__") ? (
                                   <img src={msg.content.slice(7)} alt="GIF" className="rounded-xl max-w-[240px] max-h-[200px] object-contain" loading="lazy" />
+                                ) : /* File attachment */ (msg as any).message_type === "file" ? (
+                                  <a href={(msg as any).file_url} target="_blank" rel="noopener noreferrer" download={msg.content}
+                                    className={cn("flex items-center gap-2.5 min-w-[180px] rounded-xl px-2 py-1.5 -mx-1 transition-colors",
+                                      isOwn ? "hover:bg-white/10" : "hover:bg-[#f8fafc]")}>
+                                    <div className={cn("w-9 h-9 rounded-lg flex items-center justify-center shrink-0",
+                                      isOwn ? "bg-white/20" : "bg-[#f1f5f9]")}>
+                                      <FileText className="h-4.5 w-4.5" />
+                                    </div>
+                                    <span className="flex-1 min-w-0 truncate text-sm font-medium">{msg.content}</span>
+                                    <Download className="h-4 w-4 shrink-0 opacity-70" />
+                                  </a>
                                 ) : /* Voice message */ isVoice ? (
                                   <div className="flex items-center gap-2 min-w-[160px]">
                                     <button onClick={() => togglePlay(msg.id, msg.content)}
@@ -1055,7 +1102,7 @@ export default function ChatPage() {
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-medium text-[#16a34a]">תגובה ל{replyTo.sender?.full_name}</p>
                         <p className="text-xs text-[#64748b] truncate">
-                          {(replyTo as any).message_type === "voice" ? "🎤 הודעה קולית" : replyTo.content}
+                          {(replyTo as any).message_type === "voice" ? "🎤 הודעה קולית" : (replyTo as any).message_type === "file" ? `📎 ${replyTo.content}` : replyTo.content}
                         </p>
                       </div>
                       <button onClick={() => setReplyTo(null)} className="text-[#94a3b8] hover:text-[#374151] shrink-0"><X className="h-4 w-4" /></button>
@@ -1192,6 +1239,12 @@ export default function ChatPage() {
                           showGifPicker ? "bg-[#16a34a] text-white" : "text-[#94a3b8] hover:text-[#374151] hover:bg-[#f1f5f9]")} title="GIF">
                         GIF
                       </button>
+                      <button onClick={e => { e.nativeEvent.stopImmediatePropagation(); fileAttachRef.current?.click(); }}
+                        className="p-2 rounded-lg transition-colors shrink-0 text-[#94a3b8] hover:text-[#374151] hover:bg-[#f1f5f9]" title="צרף קובץ">
+                        <Paperclip className="h-4 w-4" />
+                      </button>
+                      <input ref={fileAttachRef} type="file" className="hidden"
+                        onChange={e => { const f = e.target.files?.[0]; if (f) handleFileAttach(f); }} />
                       <textarea
                         ref={textareaRef}
                         className="flex-1 rounded-xl border border-[#e2e8f0] px-3 py-2 text-sm focus:outline-none focus:border-[#16a34a] resize-none bg-white"

@@ -22,7 +22,7 @@ export default function QuickActionsButton() {
       <button
         onClick={() => setOpen(true)}
         title="פעולות מהירות"
-        className="fixed bottom-6 left-6 z-40 w-12 h-12 rounded-full bg-[#16a34a] text-white shadow-lg hover:bg-[#15803d] hover:shadow-xl hover:scale-110 active:scale-95 transition-all flex items-center justify-center"
+        className="fixed bottom-24 left-6 z-40 w-12 h-12 rounded-full bg-[#16a34a] text-white shadow-lg hover:bg-[#15803d] hover:shadow-xl hover:scale-110 active:scale-95 transition-all flex items-center justify-center"
       >
         <Zap className="h-5 w-5 fill-white" />
       </button>

@@ -16,19 +16,22 @@ export async function POST(req: NextRequest) {
     if (!authedUser) return NextResponse.json({ error: "לא מחובר" }, { status: 401 });
 
     const body = await req.json();
-    const { conversation_id, content, message_type, reply_to } = body;
+    const { conversation_id, content, message_type, reply_to, file_url } = body;
     if (!conversation_id || !content)
       return NextResponse.json({ error: "חסרים שדות חובה" }, { status: 400 });
 
     const admin = getAdminClient();
-    // DB only allows 'text' / 'voice' — store gif/image as "text" with __IMG__ prefix
+    // DB only allows 'text' / 'voice' / 'file' — store gif/image as "text" with __IMG__ prefix
     const safeType = (message_type === "gif" || message_type === "image") ? "text" : (message_type || "text");
     const safeContent = (message_type === "gif" || message_type === "image") ? `__IMG__${content}` : content;
 
     // sender_id is always the verified caller — never trust the client to say who's speaking
     const { data, error } = await admin
       .from("chat_messages")
-      .insert({ conversation_id, sender_id: authedUser.id, content: safeContent, message_type: safeType, reply_to: reply_to || null })
+      .insert({
+        conversation_id, sender_id: authedUser.id, content: safeContent, message_type: safeType,
+        reply_to: reply_to || null, file_url: message_type === "file" ? (file_url || null) : null,
+      })
       .select("*, sender:users(id, full_name, avatar_url)")
       .single();
 
