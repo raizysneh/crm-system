@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { FileText, Upload, Download, Trash2, Search, FolderOpen, Eye, Plus } from "lucide-react";
+import { FileText, Upload, Download, Trash2, Search, FolderOpen, Folder, Eye, Plus, ArrowRight } from "lucide-react";
 import Header from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -45,6 +45,7 @@ export default function DocumentsPage() {
   const [docs, setDocs] = useState<Doc[]>([]);
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("all");
+  const [customerFilter, setCustomerFilter] = useState("");
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -127,10 +128,17 @@ export default function DocumentsPage() {
     } catch { toast.error("שגיאה במחיקה"); }
   };
 
-  const filtered = docs.filter(d =>
-    d.title.toLowerCase().includes(search.toLowerCase()) ||
-    d.description?.toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = docs.filter(d => {
+    if (customerFilter && d.customer_id !== customerFilter) return false;
+    if (!search.trim()) return true;
+    return d.title.toLowerCase().includes(search.toLowerCase()) ||
+      d.description?.toLowerCase().includes(search.toLowerCase());
+  });
+
+  // "Folder" home screen only when nothing else is narrowing the view —
+  // picking a category, a customer, or typing a search all drop into the flat list.
+  const inFolderView = category === "all" && !customerFilter && !search.trim();
+  const clearFilters = () => { setCategory("all"); setCustomerFilter(""); setSearch(""); };
 
   const getCategoryLabel = (cat: string) => CATEGORIES.find(c => c.value === cat)?.label || cat;
   const getCategoryColor = (cat: string) => ({
@@ -151,49 +159,66 @@ export default function DocumentsPage() {
       <Header title="נהלים ומסמכים" />
       <div className="p-6 space-y-5">
         {/* Toolbar */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           <div className="relative flex-1 max-w-sm">
             <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#94a3b8]" />
             <Input placeholder="חיפוש מסמך..." value={search} onChange={e => setSearch(e.target.value)} className="pr-9" />
           </div>
-          <Select value={category} onValueChange={setCategory}>
-            <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+          <Select value={customerFilter || "all"} onValueChange={v => setCustomerFilter(v === "all" ? "" : v)}>
+            <SelectTrigger className="w-48"><SelectValue placeholder="כל הלקוחות" /></SelectTrigger>
             <SelectContent>
-              {CATEGORIES.map(c => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
+              <SelectItem value="all">כל הלקוחות</SelectItem>
+              {customers.map(c => <SelectItem key={c.id} value={c.id}>{c.company_name}</SelectItem>)}
             </SelectContent>
           </Select>
-          <Button onClick={() => setShowAdd(true)}>
+          <Button onClick={() => setShowAdd(true)} className="mr-auto">
             <Plus className="h-4 w-4" /> מסמך חדש
           </Button>
         </div>
 
-        {/* Stats */}
-        <div className="grid grid-cols-4 gap-4">
-          {CATEGORIES.slice(1).map(cat => {
-            const count = docs.filter(d => d.category === cat.value).length;
-            return (
-              <Card key={cat.value} className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setCategory(cat.value)}>
-                <CardContent className="p-4 text-center">
-                  <p className="text-2xl font-bold text-[#0f172a]">{count}</p>
-                  <p className="text-sm text-[#64748b]">{cat.label}</p>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-
-        {/* Docs list */}
-        {loading ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {[1, 2, 3].map(i => <div key={i} className="h-36 bg-gray-100 rounded-xl animate-pulse" />)}
-          </div>
-        ) : filtered.length === 0 ? (
-          <div className="text-center py-16 text-[#94a3b8]">
-            <FolderOpen className="h-16 w-16 mx-auto mb-3 opacity-20" />
-            <p className="text-lg">אין מסמכים להצגה</p>
-            <p className="text-sm mt-1">לחצי על "מסמך חדש" כדי להוסיף</p>
+        {inFolderView ? (
+          /* ── Folders home screen ── */
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+            {CATEGORIES.slice(1).map(cat => {
+              const count = docs.filter(d => d.category === cat.value).length;
+              return (
+                <Card key={cat.value} className="cursor-pointer hover:shadow-md hover:border-[#16a34a] transition-all" onClick={() => setCategory(cat.value)}>
+                  <CardContent className="p-5 text-center">
+                    <Folder className="h-9 w-9 mx-auto mb-2 text-[#16a34a]" fill="#dcfce7" />
+                    <p className="font-semibold text-[#0f172a] text-sm">{cat.label}</p>
+                    <p className="text-xs text-[#94a3b8] mt-0.5">{count} מסמכים</p>
+                  </CardContent>
+                </Card>
+              );
+            })}
           </div>
         ) : (
+          <>
+            {/* Breadcrumb / back */}
+            <div className="flex items-center gap-2 text-sm">
+              <button onClick={clearFilters} className="flex items-center gap-1 text-[#16a34a] hover:underline font-medium">
+                <ArrowRight className="h-4 w-4" /> חזרה לתיקיות
+              </button>
+              {category !== "all" && (
+                <span className="text-[#64748b]">/ {getCategoryLabel(category)}</span>
+              )}
+              {customerFilter && (
+                <span className="text-[#64748b]">/ {customers.find(c => c.id === customerFilter)?.company_name}</span>
+              )}
+            </div>
+
+            {/* Docs list */}
+            {loading ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {[1, 2, 3].map(i => <div key={i} className="h-36 bg-gray-100 rounded-xl animate-pulse" />)}
+              </div>
+            ) : filtered.length === 0 ? (
+              <div className="text-center py-16 text-[#94a3b8]">
+                <FolderOpen className="h-16 w-16 mx-auto mb-3 opacity-20" />
+                <p className="text-lg">אין מסמכים להצגה</p>
+                <p className="text-sm mt-1">לחצי על "מסמך חדש" כדי להוסיף</p>
+              </div>
+            ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {filtered.map(doc => (
               <Card key={doc.id} className="hover:shadow-md transition-shadow">
@@ -250,6 +275,8 @@ export default function DocumentsPage() {
               </Card>
             ))}
           </div>
+            )}
+          </>
         )}
       </div>
 
