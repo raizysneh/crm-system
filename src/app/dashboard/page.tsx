@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Timer, CheckSquare, AlertCircle, TrendingUp, Clock, Building2, Zap } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import Header from "@/components/layout/Header";
@@ -31,6 +32,7 @@ interface EmployeeEfficiency {
 
 export default function DashboardPage() {
   const { user } = useAuthStore();
+  const router = useRouter();
   const [stats, setStats] = useState<Stats>({
     open_tasks: 0,
     overdue_tasks: 0,
@@ -44,7 +46,9 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (user) loadDashboard();
+    if (!user) return;
+    if (user.role === "client") { router.push("/portal"); return; }
+    loadDashboard();
   }, [user]);
 
   const loadDashboard = async () => {

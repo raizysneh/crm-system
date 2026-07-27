@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { supabase } from "@/lib/supabase/client";
+import { supabase, authHeader } from "@/lib/supabase/client";
 import { useAuthStore } from "@/store/authStore";
 import { toast } from "sonner";
 import { formatDate } from "@/lib/utils";
@@ -35,6 +35,8 @@ const CATEGORIES = [
   { value: "procedure", label: "נוהל" },
   { value: "contract", label: "חוזה" },
   { value: "report", label: "דוח" },
+  { value: "receipt", label: "קבלה" },
+  { value: "payment_request", label: "דרישת תשלום" },
   { value: "other", label: "אחר" },
 ];
 
@@ -86,16 +88,19 @@ export default function DocumentsPage() {
         fileType = file.type;
       }
 
-      const { error } = await supabase.from("documents").insert({
-        title: newDoc.title,
-        description: newDoc.description || null,
-        category: newDoc.category,
-        file_url: fileUrl,
-        file_type: fileType,
-        created_by: user.id,
+      const res = await fetch("/api/documents", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(await authHeader()) },
+        body: JSON.stringify({
+          title: newDoc.title,
+          description: newDoc.description || null,
+          category: newDoc.category,
+          file_url: fileUrl,
+          file_type: fileType,
+        }),
       });
-
-      if (error) throw error;
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error);
       toast.success("המסמך נוסף בהצלחה");
       setShowAdd(false);
       setNewDoc({ title: "", description: "", category: "procedure" });
@@ -109,7 +114,8 @@ export default function DocumentsPage() {
   const handleDelete = async (doc: Doc) => {
     if (!confirm(`למחוק את "${doc.title}"?`)) return;
     try {
-      await supabase.from("documents").delete().eq("id", doc.id);
+      const res = await fetch(`/api/documents?id=${doc.id}`, { method: "DELETE", headers: await authHeader() });
+      if (!res.ok) throw new Error();
       toast.success("המסמך נמחק");
       loadDocs();
     } catch { toast.error("שגיאה במחיקה"); }
