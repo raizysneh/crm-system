@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import {
   Send, MessageSquare, Search, Smile, Pencil, Trash2,
   Pin, Users, X, Check, Plus, Reply, SearchIcon, Mic,
@@ -38,6 +39,7 @@ function aggregateReactions(rawReactions: any[]): Record<string, string[]> {
 
 export default function ChatPage() {
   const { user } = useAuthStore();
+  const router = useRouter();
   const { unreadByConv, refresh: refreshUnread, clearConv: clearConvUnread } = useChatStore();
   const [conversations, setConversations] = useState<ChatConversation[]>([]);
   const [activeConv, setActiveConv]       = useState<ChatConversation | null>(null);
@@ -102,7 +104,9 @@ export default function ChatPage() {
   const lastMsgTsRef    = useRef<string>("");
 
   useEffect(() => {
-    if (user) { loadConversations(); loadUsers(); }
+    if (!user) return;
+    if (user.role === "client") { router.push("/portal"); return; }
+    loadConversations(); loadUsers();
   }, [user]);
 
   useEffect(() => {

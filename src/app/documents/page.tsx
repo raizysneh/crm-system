@@ -48,11 +48,16 @@ export default function DocumentsPage() {
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [newDoc, setNewDoc] = useState({ title: "", description: "", category: "procedure" });
+  const [newDoc, setNewDoc] = useState({ title: "", description: "", category: "procedure", customer_id: "" });
   const [file, setFile] = useState<File | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const [customers, setCustomers] = useState<{ id: string; company_name: string }[]>([]);
 
   useEffect(() => { loadDocs(); }, [category, user]);
+  useEffect(() => {
+    supabase.from("customers").select("id,company_name").eq("status", "active").order("company_name")
+      .then(({ data }) => setCustomers(data || []));
+  }, []);
 
   const loadDocs = async () => {
     if (!user) return;
@@ -95,6 +100,7 @@ export default function DocumentsPage() {
           title: newDoc.title,
           description: newDoc.description || null,
           category: newDoc.category,
+          customer_id: newDoc.customer_id || null,
           file_url: fileUrl,
           file_type: fileType,
         }),
@@ -103,7 +109,7 @@ export default function DocumentsPage() {
       if (!res.ok) throw new Error(json.error);
       toast.success("המסמך נוסף בהצלחה");
       setShowAdd(false);
-      setNewDoc({ title: "", description: "", category: "procedure" });
+      setNewDoc({ title: "", description: "", category: "procedure", customer_id: "" });
       setFile(null);
       loadDocs();
     } catch (err: any) {
@@ -278,6 +284,16 @@ export default function DocumentsPage() {
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {CATEGORIES.slice(1).map(c => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>לקוח (אופציונלי — יוצג גם בפורטל שלו)</Label>
+                <Select value={newDoc.customer_id || "none"} onValueChange={v => setNewDoc(p => ({ ...p, customer_id: v === "none" ? "" : v }))}>
+                  <SelectTrigger><SelectValue placeholder="ללא לקוח (מסמך כללי)" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">ללא לקוח (מסמך כללי)</SelectItem>
+                    {customers.map(c => <SelectItem key={c.id} value={c.id}>{c.company_name}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>

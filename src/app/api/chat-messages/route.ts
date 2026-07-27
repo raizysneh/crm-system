@@ -14,6 +14,7 @@ export async function POST(req: NextRequest) {
   try {
     const authedUser = await getAuthedUser(req);
     if (!authedUser) return NextResponse.json({ error: "לא מחובר" }, { status: 401 });
+    if (authedUser.role === "client") return NextResponse.json({ error: "אין הרשאה" }, { status: 403 });
 
     const body = await req.json();
     const { conversation_id, content, message_type, reply_to, file_url } = body;
@@ -50,6 +51,7 @@ export async function PATCH(req: NextRequest) {
   try {
     const authedUser = await getAuthedUser(req);
     if (!authedUser) return NextResponse.json({ error: "לא מחובר" }, { status: 401 });
+    if (authedUser.role === "client") return NextResponse.json({ error: "אין הרשאה" }, { status: 403 });
 
     const body = await req.json();
     const { id, content, is_pinned } = body;
@@ -93,6 +95,7 @@ export async function DELETE(req: NextRequest) {
   try {
     const authedUser = await getAuthedUser(req);
     if (!authedUser) return NextResponse.json({ error: "לא מחובר" }, { status: 401 });
+    if (authedUser.role === "client") return NextResponse.json({ error: "אין הרשאה" }, { status: 403 });
 
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");

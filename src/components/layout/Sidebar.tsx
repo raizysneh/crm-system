@@ -79,7 +79,6 @@ const clientGroups: NavGroup[] = [
     items: [
       { href: "/portal",           icon: LayoutDashboard, label: "הפרויקטים שלי" },
       { href: "/portal/tasks",     icon: CheckSquare,     label: "המשימות שלי" },
-      { href: "/chat",             icon: MessageSquare,   label: "צ'אט" },
       { href: "/portal/documents", icon: FileText,        label: "מסמכים" },
     ],
   },
@@ -93,7 +92,7 @@ export default function Sidebar() {
   const { totalUnread, refresh, ensureSubscribed } = useChatStore();
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || user.role === "client") return;
     refresh(user.id);
     ensureSubscribed(user.id);
   }, [user?.id]);

@@ -15,6 +15,7 @@ export async function POST(req: NextRequest) {
   try {
     const authedUser = await getAuthedUser(req);
     if (!authedUser) return NextResponse.json({ error: "לא מחובר" }, { status: 401 });
+    if (authedUser.role === "client") return NextResponse.json({ error: "אין הרשאה" }, { status: 403 });
 
     const { message_id, emoji } = await req.json();
     if (!message_id || !emoji)
@@ -42,6 +43,7 @@ export async function DELETE(req: NextRequest) {
   try {
     const authedUser = await getAuthedUser(req);
     if (!authedUser) return NextResponse.json({ error: "לא מחובר" }, { status: 401 });
+    if (authedUser.role === "client") return NextResponse.json({ error: "אין הרשאה" }, { status: 403 });
 
     const id = new URL(req.url).searchParams.get("id");
     if (!id) return NextResponse.json({ error: "חסר id" }, { status: 400 });

@@ -15,6 +15,7 @@ export async function POST(req: NextRequest) {
   try {
     const authedUser = await getAuthedUser(req);
     if (!authedUser) return NextResponse.json({ error: "לא מחובר" }, { status: 401 });
+    if (authedUser.role === "client") return NextResponse.json({ error: "אין הרשאה" }, { status: 403 });
 
     const { conversation_id } = await req.json();
     if (!conversation_id) return NextResponse.json({ error: "חסרים פרמטרים" }, { status: 400 });
@@ -52,6 +53,7 @@ export async function GET(req: NextRequest) {
   try {
     const authedUser = await getAuthedUser(req);
     if (!authedUser) return NextResponse.json({ error: "לא מחובר" }, { status: 401 });
+    if (authedUser.role === "client") return NextResponse.json({ error: "אין הרשאה" }, { status: 403 });
 
     const ids = req.nextUrl.searchParams.get("ids");
     if (!ids) return NextResponse.json({ data: [] });
