@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { FolderOpen, CheckSquare, Clock, TrendingUp, Building2, MessageSquare, FileText, AlertCircle } from "lucide-react";
+import { FolderOpen, CheckSquare, Clock, TrendingUp, Building2, FileText, AlertCircle } from "lucide-react";
 import Header from "@/components/layout/Header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -195,10 +195,9 @@ export default function PortalPage() {
         </div>
 
         {/* Quick links */}
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-2 gap-4">
           {[
             { href:"/portal/tasks",     icon:<CheckSquare className="h-6 w-6" />, label:"כל המשימות",  color:"bg-orange-50 text-orange-600 border-orange-200" },
-            { href:"/chat",             icon:<MessageSquare className="h-6 w-6"/>, label:"צ'אט",         color:"bg-blue-50 text-blue-600 border-blue-200" },
             { href:"/portal/documents", icon:<FileText className="h-6 w-6" />,    label:"מסמכים",       color:"bg-purple-50 text-purple-600 border-purple-200" },
           ].map(({ href, icon, label, color }) => (
             <Link key={href} href={href}>
