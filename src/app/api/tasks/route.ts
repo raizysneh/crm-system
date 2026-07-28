@@ -175,7 +175,9 @@ export async function PATCH(req: NextRequest) {
     // If marking a recurring task as completed, create the next occurrence
     if (taskData.status === "completed") {
       const { data: task } = await db.from("tasks").select("*").eq("id", id).single();
-      if (task?.is_recurring && task.due_date) {
+      // due_date is optional — tasks with none (e.g. a daily checklist with
+      // no specific due date) still recur, anchored on today instead.
+      if (task?.is_recurring) {
         const nextDate = computeNextDate(task);
         if (nextDate) {
           // Check end condition
@@ -186,12 +188,13 @@ export async function PATCH(req: NextRequest) {
           // "count" end type would need a counter stored on the task — skip for now
           if (shouldCreate) {
             const { id: _id, created_at, updated_at, status, ...rest } = task;
-            await db.from("tasks").insert({
+            const { error: recurErr } = await db.from("tasks").insert({
               ...rest,
               status: "new",
               due_date: nextDate.toISOString().split("T")[0],
               recurrence_parent_id: task.recurrence_parent_id || task.id,
             });
+            if (recurErr) console.error("[tasks] failed to create next recurrence:", recurErr.message);
           }
         }
       }
@@ -204,7 +207,7 @@ export async function PATCH(req: NextRequest) {
 }
 
 function computeNextDate(task: any): Date | null {
-  const current = new Date(task.due_date);
+  const current = task.due_date ? new Date(task.due_date) : new Date();
   const type     = task.recurrence_type;
   const interval = task.recurrence_interval || 1;
 
