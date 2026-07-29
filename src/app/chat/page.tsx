@@ -40,7 +40,7 @@ function aggregateReactions(rawReactions: any[]): Record<string, string[]> {
 export default function ChatPage() {
   const { user } = useAuthStore();
   const router = useRouter();
-  const { unreadByConv, refresh: refreshUnread, clearConv: clearConvUnread } = useChatStore();
+  const { unreadByConv, refresh: refreshUnread, clearConv: clearConvUnread, setActiveConversationId, pendingOpenConversationId, setPendingOpenConversationId } = useChatStore();
   const [conversations, setConversations] = useState<ChatConversation[]>([]);
   const [activeConv, setActiveConv]       = useState<ChatConversation | null>(null);
   const [messages, setMessages]           = useState<ChatMessage[]>([]);
@@ -111,9 +111,22 @@ export default function ChatPage() {
 
   useEffect(() => {
     activeConvRef.current = activeConv;
+    setActiveConversationId(activeConv?.id ?? null);
     if (activeConv) { loadMessages(activeConv.id); setupPresence(activeConv.id); }
     return () => { if (presenceChannelRef.current) supabase.removeChannel(presenceChannelRef.current); };
   }, [activeConv?.id]);
+
+  // Leaving the chat page entirely — the global store should stop treating any
+  // conversation as "currently open" so its messages start popping up again.
+  useEffect(() => () => setActiveConversationId(null), []);
+
+  // Clicking "פתח" on a popup toast (fired from anywhere in the app) sets this;
+  // once conversations are loaded, jump straight to that conversation.
+  useEffect(() => {
+    if (!pendingOpenConversationId || conversations.length === 0) return;
+    const target = conversations.find(c => c.id === pendingOpenConversationId);
+    if (target) { setActiveConv(target); setPendingOpenConversationId(null); }
+  }, [pendingOpenConversationId, conversations]);
 
   // Polling fallback — fetch new messages every 3s (covers WebSocket failures)
   useEffect(() => {
@@ -173,46 +186,9 @@ export default function ChatPage() {
     }
   }, []);
 
-  // Global subscription: notify for messages in ANY conversation the user is part of
-  useEffect(() => {
-    if (!user || conversations.length === 0) return;
-    const convIds = new Set(conversations.map(c => c.id));
-
-    const globalCh = supabase
-      .channel("global-chat-notif")
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "chat_messages" },
-        (payload) => {
-          // Only care about conversations this user is in
-          if (!convIds.has(payload.new.conversation_id)) return;
-          // Don't notify for own messages
-          if (payload.new.sender_id === user.id) return;
-          // Active conversation is handled separately (messages shown inline)
-          if (payload.new.conversation_id === activeConvRef.current?.id) return;
-
-          const sender = usersRef.current.find(u => u.id === payload.new.sender_id);
-          const senderName = sender?.full_name || "הודעה חדשה";
-          const body = payload.new.content?.startsWith("__IMG__")
-            ? "📎 תמונה/GIF"
-            : payload.new.message_type === "voice" ? "🎤 הודעה קולית"
-            : payload.new.message_type === "file" ? `📎 ${payload.new.content}` : payload.new.content;
-
-          // Always show in-app toast so user can navigate to chat
-          const targetConv = conversations.find(c => c.id === payload.new.conversation_id);
-          toast.info(`💬 ${senderName}`, {
-            description: body,
-            action: targetConv ? { label: "פתח", onClick: () => setActiveConv(targetConv) } : undefined,
-            duration: 6000,
-          });
-
-          // Browser notification
-          if ("Notification" in window && Notification.permission === "granted") {
-            new Notification(senderName, { body, icon: "/favicon.ico", tag: payload.new.conversation_id });
-          }
-        })
-      .subscribe();
-
-    return () => { supabase.removeChannel(globalCh); };
-  }, [user, conversations]);
+  // Popup toasts/desktop notifications for messages in other conversations are now
+  // handled globally by useChatStore.ensureSubscribed (see src/store/chatStore.ts),
+  // which is mounted from the Sidebar and active on every page — not just here.
 
   // Realtime messages + reactions
   useEffect(() => {
