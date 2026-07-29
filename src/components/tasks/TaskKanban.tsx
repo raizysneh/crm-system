@@ -1,7 +1,7 @@
 "use client";
 
 import { Task } from "@/types";
-import { getStatusLabel, getStatusColor, cn } from "@/lib/utils";
+import { getStatusLabel, getStatusColor, cn, isOverdue } from "@/lib/utils";
 import Link from "next/link";
 import { Calendar, User, Timer } from "lucide-react";
 import { useTimerStore } from "@/store/timerStore";
@@ -89,7 +89,7 @@ export default function TaskKanban({ tasks, onStatusChange, onRefresh }: Props) 
                         {task.due_date && (
                           <span className={cn(
                             "flex items-center gap-1",
-                            new Date(task.due_date) < new Date() && task.status !== "completed" ? "text-red-500" : ""
+                            isOverdue(task.due_date) && task.status !== "completed" ? "text-red-500" : ""
                           )}>
                             <Calendar className="h-3 w-3" />
                             {new Date(task.due_date).toLocaleDateString("he-IL")}

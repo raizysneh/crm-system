@@ -12,7 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { supabase } from "@/lib/supabase/client";
 import { Customer, Task, Project, TimeEntry } from "@/types";
 import { toast } from "sonner";
-import { formatDateTime, formatHours, getStatusLabel, getStatusColor } from "@/lib/utils";
+import { formatDateTime, formatHours, getStatusLabel, getStatusColor, isOverdue } from "@/lib/utils";
 import Link from "next/link";
 import ClientFormDialog from "@/components/clients/ClientFormDialog";
 
@@ -170,7 +170,7 @@ export default function ClientDetailPage() {
                             {getStatusLabel(task.status)}
                           </span>
                           {task.due_date && (
-                            <span className={`text-xs ${new Date(task.due_date) < new Date() && task.status !== "completed" ? "text-red-500" : "text-[#94a3b8]"}`}>
+                            <span className={`text-xs ${isOverdue(task.due_date) && task.status !== "completed" ? "text-red-500" : "text-[#94a3b8]"}`}>
                               {new Date(task.due_date).toLocaleDateString("he-IL")}
                             </span>
                           )}

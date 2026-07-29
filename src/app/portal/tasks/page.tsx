@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuthStore } from "@/store/authStore";
 import { useRouter } from "next/navigation";
-import { cn, getStatusLabel, getStatusColor } from "@/lib/utils";
+import { cn, getStatusLabel, getStatusColor, isOverdue } from "@/lib/utils";
 import { authHeader } from "@/lib/supabase/client";
 
 export default function PortalTasksPage() {
@@ -39,7 +39,7 @@ export default function PortalTasksPage() {
   const stats = {
     open:      tasks.filter(t => !["completed","cancelled"].includes(t.status)).length,
     completed: tasks.filter(t => t.status === "completed").length,
-    overdue:   tasks.filter(t => t.due_date && new Date(t.due_date) < new Date() && t.status !== "completed").length,
+    overdue:   tasks.filter(t => t.due_date && isOverdue(t.due_date) && t.status !== "completed").length,
   };
 
   if (loading) return (
@@ -106,15 +106,15 @@ export default function PortalTasksPage() {
         ) : (
           <div className="space-y-2">
             {filtered.map((t: any) => {
-              const isOverdue = t.due_date && new Date(t.due_date) < new Date() && t.status !== "completed";
+              const taskOverdue = t.due_date && isOverdue(t.due_date) && t.status !== "completed";
               return (
-                <Card key={t.id} className={cn(isOverdue && "border-red-200")}>
+                <Card key={t.id} className={cn(taskOverdue && "border-red-200")}>
                   <CardContent className="p-4 flex items-start gap-4">
                     <div className={cn(
                       "w-10 h-10 rounded-full flex items-center justify-center shrink-0 mt-0.5",
-                      t.status === "completed" ? "bg-green-100" : isOverdue ? "bg-red-100" : "bg-orange-100"
+                      t.status === "completed" ? "bg-green-100" : taskOverdue ? "bg-red-100" : "bg-orange-100"
                     )}>
-                      {isOverdue
+                      {taskOverdue
                         ? <AlertCircle className="h-5 w-5 text-red-500" />
                         : t.status === "completed"
                           ? <CheckSquare className="h-5 w-5 text-green-500" />
@@ -141,10 +141,10 @@ export default function PortalTasksPage() {
                         {t.project && <span className="text-xs text-[#64748b]">{t.project.name}</span>}
                         {t.assigned_user && <span className="text-xs text-[#94a3b8]">אחראי: {t.assigned_user.full_name}</span>}
                         {t.due_date && (
-                          <span className={cn("text-xs flex items-center gap-1", isOverdue ? "text-red-500 font-semibold" : "text-[#94a3b8]")}>
+                          <span className={cn("text-xs flex items-center gap-1", taskOverdue ? "text-red-500 font-semibold" : "text-[#94a3b8]")}>
                             <Clock className="h-3 w-3" />
                             {new Date(t.due_date).toLocaleDateString("he-IL")}
-                            {isOverdue && " (איחור!)"}
+                            {taskOverdue && " (איחור!)"}
                           </span>
                         )}
                       </div>

@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { useAuthStore } from "@/store/authStore";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { cn, getStatusLabel, getStatusColor } from "@/lib/utils";
+import { cn, getStatusLabel, getStatusColor, isOverdue } from "@/lib/utils";
 import { authHeader } from "@/lib/supabase/client";
 
 export default function PortalPage() {
@@ -51,7 +51,7 @@ export default function PortalPage() {
   const openTasks      = tasks.filter((t: any) => !["completed","cancelled"].includes(t.status));
   const completedTasks = tasks.filter((t: any) => t.status === "completed");
   const overdueTasks   = openTasks.filter((t: any) =>
-    t.due_date && new Date(t.due_date) < new Date()
+    t.due_date && isOverdue(t.due_date)
   );
 
   const overallProgress = projects.length
@@ -155,12 +155,12 @@ export default function PortalPage() {
               ) : (
                 <div className="space-y-2">
                   {tasks.slice(0, 6).map((t: any) => {
-                    const isOverdue = t.due_date && new Date(t.due_date) < new Date() && t.status !== "completed";
+                    const taskOverdue = t.due_date && isOverdue(t.due_date) && t.status !== "completed";
                     return (
                       <div key={t.id} className="flex items-start gap-3 p-2.5 rounded-lg border border-[#f8fafc] hover:border-[#e2e8f0]">
                         <div className={cn(
                           "w-2 h-2 rounded-full mt-1.5 shrink-0",
-                          t.status === "completed" ? "bg-green-400" : isOverdue ? "bg-red-400" : "bg-orange-400"
+                          t.status === "completed" ? "bg-green-400" : taskOverdue ? "bg-red-400" : "bg-orange-400"
                         )} />
                         <div className="flex-1 min-w-0">
                           <p className={cn("text-sm font-medium", t.status === "completed" && "line-through text-[#94a3b8]")}>
@@ -169,9 +169,9 @@ export default function PortalPage() {
                           <div className="flex items-center gap-2 mt-0.5">
                             {t.project && <span className="text-xs text-[#94a3b8]">{t.project.name}</span>}
                             {t.due_date && (
-                              <span className={cn("text-xs", isOverdue ? "text-red-500 font-medium" : "text-[#94a3b8]")}>
+                              <span className={cn("text-xs", taskOverdue ? "text-red-500 font-medium" : "text-[#94a3b8]")}>
                                 {new Date(t.due_date).toLocaleDateString("he-IL")}
-                                {isOverdue && " (איחור!)"}
+                                {taskOverdue && " (איחור!)"}
                               </span>
                             )}
                           </div>

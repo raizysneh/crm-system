@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import Header from "@/components/layout/Header";
 import { supabase } from "@/lib/supabase/client";
 import { useAuthStore } from "@/store/authStore";
-import { formatHours } from "@/lib/utils";
+import { formatHours, isOverdue } from "@/lib/utils";
 import Link from "next/link";
 
 interface Stats {
@@ -83,7 +83,7 @@ export default function DashboardPage() {
       const employees = usersRes.data || [];
 
       const openTasks = tasks.filter(t => !["completed", "cancelled"].includes(t.status)).length;
-      const overdue = tasks.filter(t => t.due_date && new Date(t.due_date) < new Date() && t.status !== "completed").length;
+      const overdue = tasks.filter(t => t.due_date && isOverdue(t.due_date) && t.status !== "completed").length;
       const completedToday = tasks.filter(t => t.status === "completed").length;
       const todaySeconds = timeEntries.reduce((sum, e) => sum + (e.duration || 0), 0);
 
@@ -301,7 +301,7 @@ export default function DashboardPage() {
           ) : (
             <div className="divide-y divide-[#f8fafc]">
               {recentTasks.map((task) => {
-                const isOverdue = task.due_date && new Date(task.due_date) < new Date() && task.status !== "completed";
+                const taskOverdue = task.due_date && isOverdue(task.due_date) && task.status !== "completed";
                 return (
                   <Link key={task.id} href={`/tasks/${task.id}`}>
                     <div className="flex items-center gap-3 px-5 py-3 hover:bg-[#f8fafc] transition-colors group">
@@ -318,7 +318,7 @@ export default function DashboardPage() {
                           {getStatusLabel(task.status)}
                         </span>
                         {task.due_date && (
-                          <span className={`text-[11px] font-medium ${isOverdue ? "text-red-500" : "text-[#94a3b8]"}`}>
+                          <span className={`text-[11px] font-medium ${taskOverdue ? "text-red-500" : "text-[#94a3b8]"}`}>
                             {new Date(task.due_date).toLocaleDateString("he-IL")}
                           </span>
                         )}

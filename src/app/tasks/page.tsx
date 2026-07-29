@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { supabase, authHeader } from "@/lib/supabase/client";
+import { isOverdue } from "@/lib/utils";
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 import { Task, Customer, User } from "@/types";
 import { useAuthStore } from "@/store/authStore";
@@ -125,7 +126,7 @@ export default function TasksPage() {
   const stats = {
     all: tasks.length,
     open: tasks.filter(t => !["completed", "cancelled"].includes(t.status)).length,
-    overdue: tasks.filter(t => t.due_date && new Date(t.due_date) < new Date() && t.status !== "completed").length,
+    overdue: tasks.filter(t => t.due_date && isOverdue(t.due_date) && t.status !== "completed").length,
     completed: tasks.filter(t => t.status === "completed").length,
   };
 

@@ -92,8 +92,15 @@ export function getInitials(name: string): string {
     .toUpperCase();
 }
 
+// A task due today isn't overdue yet — only starting the day after its due
+// date. Compares calendar dates (not exact timestamps) to avoid a task
+// flipping to "overdue" the instant midnight passes on its own due date.
 export function isOverdue(dueDate: string): boolean {
-  return new Date(dueDate) < new Date();
+  const [y, m, d] = dueDate.split("T")[0].split("-").map(Number);
+  const due = new Date(y, m - 1, d);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return due < today;
 }
 
 export function truncate(str: string, n: number): string {
