@@ -26,6 +26,22 @@ export async function POST(req: NextRequest) {
     const safeType = (message_type === "gif" || message_type === "image") ? "text" : (message_type || "text");
     const safeContent = (message_type === "gif" || message_type === "image") ? `__IMG__${content}` : content;
 
+    // Admins can see (and message into) any conversation to monitor it, even ones
+    // they never formally joined — the moment they actually send something, record
+    // them as a real participant so read receipts, member lists, and the
+    // conversation name all correctly reflect that they're now part of it.
+    if (authedUser.role === "admin") {
+      const { data: existingParticipant } = await admin
+        .from("chat_participants")
+        .select("id")
+        .eq("conversation_id", conversation_id)
+        .eq("user_id", authedUser.id)
+        .maybeSingle();
+      if (!existingParticipant) {
+        await admin.from("chat_participants").insert({ conversation_id, user_id: authedUser.id });
+      }
+    }
+
     // sender_id is always the verified caller — never trust the client to say who's speaking
     const { data, error } = await admin
       .from("chat_messages")

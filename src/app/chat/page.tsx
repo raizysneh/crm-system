@@ -482,6 +482,12 @@ export default function ChatPage() {
       if (res.ok && inserted?.id) {
         setMessages(prev => prev.some(m => m.id === inserted.id) ? prev : [...prev, inserted]);
         lastMsgTsRef.current = inserted.created_at;
+        // Admin messaging into a conversation they were only monitoring just got
+        // auto-added as a real participant server-side — refresh so the sidebar/
+        // header name reflects that they're now actually part of it.
+        if (user.role === "admin" && !getConvMembers(activeConv).some(m => m.id === user.id)) {
+          loadConversations();
+        }
       } else {
         toast.error("שגיאה בשליחה");
       }
@@ -729,8 +735,13 @@ export default function ChatPage() {
   // ─── Helpers ──────────────────────────────────────────────────
   const getConvName = (conv: ChatConversation) => {
     if (conv.name) return conv.name;
-    const other = conv.participants?.find((p: any) => p.user?.id !== user?.id);
-    return (other as any)?.user?.full_name || "שיחה פרטית";
+    const participants = conv.participants || [];
+    const others = participants.filter((p: any) => p.user?.id !== user?.id).map((p: any) => p.user?.full_name).filter(Boolean);
+    if (others.length === 0) return "שיחה פרטית";
+    // Viewer isn't actually a participant here (e.g. admin monitoring two employees'
+    // chat) — show both sides so it's clear who's talking to whom, not "with me".
+    if (others.length === participants.length) return others.join(" ↔ ");
+    return others.join(", ");
   };
 
   const getConvMembers = (conv: ChatConversation): User[] =>
