@@ -11,8 +11,8 @@ function admin() {
 }
 
 // Triggered daily by Vercel Cron (see vercel.json). Emails whoever's assigned
-// and the client for every task whose due_date is today and hasn't been
-// reminded about yet, so postponing/reassigning a task doesn't spam.
+// for every task whose due_date is today and hasn't been reminded about yet,
+// so postponing/reassigning a task doesn't spam.
 export async function GET(req: NextRequest) {
   if (process.env.CRON_SECRET) {
     const auth = req.headers.get("authorization");
@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
 
   const { data: tasks, error } = await db
     .from("tasks")
-    .select("*, customer:customers(company_name,email), assignee:users!assigned_user_id(full_name,email)")
+    .select("*, customer:customers(company_name), assignee:users!assigned_user_id(full_name,email)")
     .eq("due_date", today)
     .is("due_reminder_sent_at", null)
     .not("status", "in", "(completed,cancelled)")
@@ -42,10 +42,7 @@ export async function GET(req: NextRequest) {
 
   let sent = 0;
   for (const task of tasks) {
-    const emailSet = new Set<string>();
-    if ((task.customer as any)?.email) emailSet.add((task.customer as any).email);
-    if ((task.assignee as any)?.email) emailSet.add((task.assignee as any).email);
-    const emails = [...emailSet];
+    const emails = (task.assignee as any)?.email ? [(task.assignee as any).email] : [];
 
     if (emails.length) {
       const html = `
