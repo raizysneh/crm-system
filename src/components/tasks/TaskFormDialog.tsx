@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Plus, X, RotateCcw, ChevronDown } from "lucide-react";
+import { Plus, X, RotateCcw, ChevronDown, Check, Pencil, Trash2 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,7 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { supabase, authHeader } from "@/lib/supabase/client";
-import { Customer, User, Task, Project } from "@/types";
+import { Customer, User, Task, Project, Subtask } from "@/types";
 import { toast } from "sonner";
 import { useAuthStore } from "@/store/authStore";
 
@@ -98,6 +98,61 @@ export default function TaskFormDialog({ task, clients, employees, onClose, onSa
   const loadProjects = async (clientId: string) => {
     const { data } = await supabase.from("projects").select("id, name").eq("customer_id", clientId);
     setProjects(data || []);
+  };
+
+  // Existing-task subtasks (create mode uses the react-hook-form field array above instead)
+  const [existingSubtasks, setExistingSubtasks] = useState<Subtask[]>([]);
+  const [newSubtaskTitle, setNewSubtaskTitle] = useState("");
+  const [addingSubtask, setAddingSubtask] = useState(false);
+  const [editingSubId, setEditingSubId] = useState<string | null>(null);
+  const [editingSubTitle, setEditingSubTitle] = useState("");
+
+  useEffect(() => {
+    if (!task?.id) return;
+    supabase.from("subtasks").select("*").eq("task_id", task.id).order("sort_order")
+      .then(({ data }) => setExistingSubtasks(data || []));
+  }, [task?.id]);
+
+  const handleToggleSubtask = async (subtask: Subtask) => {
+    setExistingSubtasks(prev => prev.map(s => s.id === subtask.id ? { ...s, completed: !s.completed } : s));
+    await fetch("/api/subtasks", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...(await authHeader()) },
+      body: JSON.stringify({ id: subtask.id, completed: !subtask.completed, completed_at: !subtask.completed ? new Date().toISOString() : null }),
+    });
+  };
+
+  const handleAddExistingSubtask = async () => {
+    if (!newSubtaskTitle.trim() || !task?.id) return;
+    setAddingSubtask(true);
+    const res = await fetch("/api/subtasks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(await authHeader()) },
+      body: JSON.stringify({ task_id: task.id, title: newSubtaskTitle.trim(), completed: false, sort_order: existingSubtasks.length }),
+    });
+    const json = await res.json();
+    if (res.ok && json.data) { setExistingSubtasks(prev => [...prev, json.data]); setNewSubtaskTitle(""); }
+    else toast.error("שגיאה בהוספת תת משימה");
+    setAddingSubtask(false);
+  };
+
+  const handleSaveSubtaskTitle = async (subtaskId: string) => {
+    const title = editingSubTitle.trim();
+    setEditingSubId(null);
+    if (!title) return;
+    const res = await fetch("/api/subtasks", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...(await authHeader()) },
+      body: JSON.stringify({ id: subtaskId, title }),
+    });
+    if (res.ok) setExistingSubtasks(prev => prev.map(s => s.id === subtaskId ? { ...s, title } : s));
+    else toast.error("שגיאה בעדכון תת משימה");
+  };
+
+  const handleDeleteExistingSubtask = async (subtaskId: string) => {
+    const res = await fetch(`/api/subtasks?id=${subtaskId}`, { method: "DELETE", headers: await authHeader() });
+    if (res.ok) setExistingSubtasks(prev => prev.filter(s => s.id !== subtaskId));
+    else toast.error("שגיאה במחיקת תת משימה");
   };
 
   const onSubmit = async (data: FormData) => {
@@ -256,7 +311,7 @@ export default function TaskFormDialog({ task, clients, employees, onClose, onSa
           </div>
 
           {/* Subtasks */}
-          {!task && (
+          {!task ? (
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label>תתי משימות</Label>
@@ -277,6 +332,66 @@ export default function TaskFormDialog({ task, clients, employees, onClose, onSa
                   </button>
                 </div>
               ))}
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <Label>תתי משימות</Label>
+              {existingSubtasks.map(subtask => (
+                <div key={subtask.id} className="flex items-center gap-2 group">
+                  <button
+                    type="button"
+                    onClick={() => handleToggleSubtask(subtask)}
+                    className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${
+                      subtask.completed ? "bg-[#16a34a] border-[#16a34a]" : "border-[#cbd5e1] hover:border-[#16a34a]"
+                    }`}
+                  >
+                    {subtask.completed && <Check className="h-3 w-3 text-white" />}
+                  </button>
+                  {editingSubId === subtask.id ? (
+                    <Input
+                      autoFocus
+                      value={editingSubTitle}
+                      onChange={e => setEditingSubTitle(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === "Enter") { e.preventDefault(); handleSaveSubtaskTitle(subtask.id); }
+                        if (e.key === "Escape") setEditingSubId(null);
+                      }}
+                      onBlur={() => handleSaveSubtaskTitle(subtask.id)}
+                      className="flex-1 h-8"
+                    />
+                  ) : (
+                    <span
+                      className={`flex-1 text-sm ${subtask.completed ? "line-through text-[#94a3b8]" : "text-[#374151]"}`}
+                      onDoubleClick={() => { setEditingSubId(subtask.id); setEditingSubTitle(subtask.title); }}
+                    >
+                      {subtask.title}
+                    </span>
+                  )}
+                  {editingSubId !== subtask.id && (
+                    <button type="button" onClick={() => { setEditingSubId(subtask.id); setEditingSubTitle(subtask.title); }}
+                      className="opacity-0 group-hover:opacity-100 text-[#94a3b8] hover:text-[#374151]">
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                  <button type="button" onClick={() => handleDeleteExistingSubtask(subtask.id)}
+                    className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600">
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
+              <div className="flex gap-2 items-center">
+                <Input
+                  value={newSubtaskTitle}
+                  onChange={e => setNewSubtaskTitle(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); handleAddExistingSubtask(); } }}
+                  placeholder="תת משימה חדשה..."
+                  className="flex-1 h-8"
+                />
+                <button type="button" onClick={handleAddExistingSubtask} disabled={addingSubtask}
+                  className="text-xs text-[#16a34a] flex items-center gap-1 hover:underline shrink-0">
+                  <Plus className="h-3 w-3" /> הוסף
+                </button>
+              </div>
             </div>
           )}
 

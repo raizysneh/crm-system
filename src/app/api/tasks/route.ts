@@ -191,13 +191,22 @@ export async function PATCH(req: NextRequest) {
           // "count" end type would need a counter stored on the task — skip for now
           if (shouldCreate) {
             const { id: _id, created_at, updated_at, status, ...rest } = task;
-            const { error: recurErr } = await db.from("tasks").insert({
+            const { data: nextTask, error: recurErr } = await db.from("tasks").insert({
               ...rest,
               status: "new",
               due_date: nextDate.toISOString().split("T")[0],
               recurrence_parent_id: task.recurrence_parent_id || task.id,
-            });
+            }).select().single();
             if (recurErr) console.error("[tasks] failed to create next recurrence:", recurErr.message);
+            else if (nextTask) {
+              const { data: oldSubtasks } = await db.from("subtasks").select("title, sort_order").eq("task_id", id).order("sort_order");
+              if (oldSubtasks?.length) {
+                const { error: subErr } = await db.from("subtasks").insert(
+                  oldSubtasks.map(s => ({ task_id: nextTask.id, title: s.title, completed: false, sort_order: s.sort_order }))
+                );
+                if (subErr) console.error("[tasks] failed to copy subtasks to next recurrence:", subErr.message);
+              }
+            }
           }
         }
       }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { FolderOpen, CheckSquare, Clock, TrendingUp, Building2, FileText, AlertCircle } from "lucide-react";
+import { FolderOpen, CheckSquare, FileText, AlertCircle } from "lucide-react";
 import Header from "@/components/layout/Header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { useAuthStore } from "@/store/authStore";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { cn, getStatusLabel, getStatusColor, isOverdue } from "@/lib/utils";
+import { cn, getStatusLabel, getStatusColor } from "@/lib/utils";
 import { authHeader } from "@/lib/supabase/client";
 
 export default function PortalPage() {
@@ -48,11 +48,8 @@ export default function PortalPage() {
   );
 
   const { customer, projects, tasks } = data;
-  const openTasks      = tasks.filter((t: any) => !["completed","cancelled"].includes(t.status));
-  const completedTasks = tasks.filter((t: any) => t.status === "completed");
-  const overdueTasks   = openTasks.filter((t: any) =>
-    t.due_date && isOverdue(t.due_date)
-  );
+  // The portal API already scopes tasks to completed-only for clients.
+  const completedTasks = tasks;
 
   const overallProgress = projects.length
     ? Math.round(projects.reduce((s: number, p: any) => s + (p.progress || 0), 0) / projects.length)
@@ -87,12 +84,10 @@ export default function PortalPage() {
         </Card>
 
         {/* Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 gap-4">
           {[
             { label:"פרויקטים פעילים", value: projects.filter((p: any) => p.status === "active").length, icon:<FolderOpen className="h-5 w-5" />, color:"text-blue-600" },
-            { label:"משימות פתוחות",   value: openTasks.length,      icon:<CheckSquare className="h-5 w-5" />, color:"text-orange-500" },
-            { label:"הושלמו",          value: completedTasks.length,  icon:<TrendingUp  className="h-5 w-5" />, color:"text-green-600" },
-            { label:"באיחור",          value: overdueTasks.length,    icon:<Clock       className="h-5 w-5" />, color:"text-red-500" },
+            { label:"משימות שהושלמו",  value: completedTasks.length,  icon:<CheckSquare className="h-5 w-5" />, color:"text-green-600" },
           ].map(s => (
             <Card key={s.label}>
               <CardContent className="p-4 flex items-center gap-3">
@@ -146,48 +141,30 @@ export default function PortalPage() {
             <CardContent className="p-5">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="font-bold text-[#0f172a] flex items-center gap-2">
-                  <CheckSquare className="h-4 w-4 text-orange-500" /> משימות אחרונות
+                  <CheckSquare className="h-4 w-4 text-green-600" /> משימות שהושלמו לאחרונה
                 </h3>
                 <Link href="/portal/tasks" className="text-xs text-[#16a34a] hover:underline">הכל</Link>
               </div>
               {tasks.length === 0 ? (
-                <p className="text-sm text-[#94a3b8] text-center py-6">אין משימות</p>
+                <p className="text-sm text-[#94a3b8] text-center py-6">אין משימות שהושלמו עדיין</p>
               ) : (
                 <div className="space-y-2">
-                  {tasks.slice(0, 6).map((t: any) => {
-                    const taskOverdue = t.due_date && isOverdue(t.due_date) && t.status !== "completed";
-                    return (
-                      <div key={t.id} className="flex items-start gap-3 p-2.5 rounded-lg border border-[#f8fafc] hover:border-[#e2e8f0]">
-                        <div className={cn(
-                          "w-2 h-2 rounded-full mt-1.5 shrink-0",
-                          t.status === "completed" ? "bg-green-400" : taskOverdue ? "bg-red-400" : "bg-orange-400"
-                        )} />
-                        <div className="flex-1 min-w-0">
-                          <p className={cn("text-sm font-medium", t.status === "completed" && "line-through text-[#94a3b8]")}>
-                            {t.title}
-                          </p>
-                          <div className="flex items-center gap-2 mt-0.5">
-                            {t.project && <span className="text-xs text-[#94a3b8]">{t.project.name}</span>}
-                            {t.due_date && (
-                              <span className={cn("text-xs", taskOverdue ? "text-red-500 font-medium" : "text-[#94a3b8]")}>
-                                {new Date(t.due_date).toLocaleDateString("he-IL")}
-                                {taskOverdue && " (איחור!)"}
-                              </span>
-                            )}
+                  {tasks.slice(0, 6).map((t: any) => (
+                    <div key={t.id} className="flex items-start gap-3 p-2.5 rounded-lg border border-[#f8fafc] hover:border-[#e2e8f0]">
+                      <div className="w-2 h-2 rounded-full mt-1.5 shrink-0 bg-green-400" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium line-through text-[#94a3b8]">{t.title}</p>
+                        {t.project && <span className="text-xs text-[#94a3b8]">{t.project.name}</span>}
+                        {t.subtasks_count > 0 && (
+                          <div className="flex items-center gap-1.5 mt-1">
+                            <Progress value={t.progress} className="w-16 h-1" />
+                            <span className="text-xs text-[#94a3b8]">{t.completed_subtasks}/{t.subtasks_count}</span>
                           </div>
-                          {t.subtasks_count > 0 && (
-                            <div className="flex items-center gap-1.5 mt-1">
-                              <Progress value={t.progress} className="w-16 h-1" />
-                              <span className="text-xs text-[#94a3b8]">{t.completed_subtasks}/{t.subtasks_count}</span>
-                            </div>
-                          )}
-                        </div>
-                        <Badge variant={t.status === "completed" ? "success" : "secondary"} className="text-[10px] shrink-0">
-                          {getStatusLabel(t.status)}
-                        </Badge>
+                        )}
                       </div>
-                    );
-                  })}
+                      <Badge variant="success" className="text-[10px] shrink-0">{getStatusLabel(t.status)}</Badge>
+                    </div>
+                  ))}
                 </div>
               )}
             </CardContent>

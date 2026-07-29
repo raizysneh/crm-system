@@ -60,12 +60,12 @@ export async function GET(req: NextRequest) {
       .neq("status","cancelled")
       .order("created_at", { ascending: false });
 
-    // Get tasks for this customer (not internal/cancelled)
+    // Clients only ever see completed tasks — open/in-progress work stays internal.
     const { data: tasks } = await db
       .from("tasks")
       .select("*, project:projects(id,name), assigned_user:users!assigned_user_id(id,full_name), subtasks(id,completed)")
       .eq("customer_id", customer.id)
-      .neq("status","cancelled")
+      .eq("status", "completed")
       .order("created_at", { ascending: false });
 
     // Augment projects with progress

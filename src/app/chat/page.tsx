@@ -461,10 +461,19 @@ export default function ChatPage() {
 
       const replyToId = replyTo?.id || null;
       setReplyTo(null);
+
+      // Images/audio get rendered inline (like GIFs/voice messages) instead of a generic download card.
+      const isImage = file.type.startsWith("image/");
+      const isAudio = file.type.startsWith("audio/");
+      const payload: any = { conversation_id: activeConv.id, reply_to: replyToId };
+      if (isImage)      Object.assign(payload, { content: json.url, message_type: "image" });
+      else if (isAudio) Object.assign(payload, { content: json.url, message_type: "voice" });
+      else              Object.assign(payload, { content: file.name, message_type: "file", file_url: json.url });
+
       const sendRes = await fetch("/api/chat-messages", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(await authHeader()) },
-        body: JSON.stringify({ conversation_id: activeConv.id, content: file.name, message_type: "file", file_url: json.url, reply_to: replyToId }),
+        body: JSON.stringify(payload),
       });
       const inserted = await sendRes.json();
       if (!sendRes.ok || !inserted?.id) throw new Error(inserted.error || "שגיאה בשליחה");
@@ -646,10 +655,28 @@ export default function ChatPage() {
   // ─── Conversations ────────────────────────────────────────────
   const handleNewPrivateChat = async (targetUser: User) => {
     if (!user) return;
-    const existing = conversations.find(c =>
-      c.type === "private" && c.participants?.some((p: any) => p.user?.id === targetUser.id)
-    );
-    if (existing) { setActiveConv(existing); setShowNewChat(false); return; }
+    // Check the DB directly (not just locally-loaded state, which for admins holds
+    // every conversation in the system) so we never create — or worse, jump into —
+    // the wrong private conversation between two other people.
+    const { data: mine } = await supabase.from("chat_participants").select("conversation_id").eq("user_id", user.id);
+    const myConvIds = (mine || []).map(r => r.conversation_id);
+    if (myConvIds.length) {
+      const { data: theirs } = await supabase.from("chat_participants")
+        .select("conversation_id").eq("user_id", targetUser.id).in("conversation_id", myConvIds);
+      const commonIds = (theirs || []).map(r => r.conversation_id);
+      if (commonIds.length) {
+        const { data: convs } = await supabase.from("chat_conversations")
+          .select("*, participants:chat_participants(user:users(id, full_name, avatar_url))")
+          .in("id", commonIds).eq("type", "private");
+        const existingConv = (convs || []).find(c => (c.participants || []).length === 2);
+        if (existingConv) {
+          await loadConversations();
+          setActiveConv(existingConv as any);
+          setShowNewChat(false);
+          return;
+        }
+      }
+    }
     try {
       const { data: conv } = await supabase.from("chat_conversations")
         .insert({ type: "private", created_by: user.id }).select().single();
