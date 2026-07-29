@@ -100,6 +100,9 @@ export async function PATCH(req: NextRequest) {
     const db = admin();
     if (!(await canTouchTask(db, id, authedUser))) return NextResponse.json({ error: "אין הרשאה" }, { status: 403 });
 
+    // Postponing/changing the due date should trigger a fresh reminder on the new date.
+    if ("due_date" in taskData) taskData.due_reminder_sent_at = null;
+
     const { error } = await db.from("tasks").update(taskData).eq("id", id);
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
