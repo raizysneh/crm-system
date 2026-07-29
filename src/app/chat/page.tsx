@@ -353,7 +353,8 @@ export default function ChatPage() {
   };
 
   const loadUsers = async () => {
-    const { data } = await supabase.from("users").select("*").neq("id", user?.id).eq("status", "active");
+    // Clients don't have chat access at all — never offer them as a new-chat/group target.
+    const { data } = await supabase.from("users").select("*").neq("id", user?.id).neq("role", "client").eq("status", "active");
     const list = (data || []) as User[];
     setUsers(list);
     usersRef.current = list;
