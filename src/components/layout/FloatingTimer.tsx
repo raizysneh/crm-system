@@ -87,6 +87,36 @@ export default function FloatingTimer() {
     return () => clearInterval(id);
   }, []);
 
+  // Broadcast "is my timer running" via presence so admins can see it live on
+  // the dashboard — no DB writes, and it clears itself automatically if this
+  // tab disconnects (closed browser, lost network).
+  const presenceChannelRef = useRef<any>(null);
+  useEffect(() => {
+    if (!user) return;
+    const channel = supabase.channel("global-timer-presence", { config: { presence: { key: user.id } } });
+    channel.subscribe();
+    presenceChannelRef.current = channel;
+    return () => { supabase.removeChannel(channel); presenceChannelRef.current = null; };
+  }, [user?.id]);
+
+  useEffect(() => {
+    const channel = presenceChannelRef.current;
+    if (!channel || !user) return;
+    if (timers.length === 0) { channel.untrack(); return; }
+    channel.track({
+      user_id: user.id,
+      full_name: user.full_name,
+      timers: timers.map(t => ({
+        customer_name: t.customer_name,
+        task_title: t.task_title,
+        is_paused: t.is_paused,
+        start_time: t.start_time,
+        elapsed_seconds: t.elapsed_seconds,
+        last_resume_time: t.last_resume_time,
+      })),
+    });
+  }, [timers, user]);
+
   // Load all customers once on mount
   useEffect(() => {
     supabase.from("customers").select("id,company_name").eq("status","active").order("company_name")

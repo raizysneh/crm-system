@@ -7,8 +7,24 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import Header from "@/components/layout/Header";
 import { supabase } from "@/lib/supabase/client";
 import { useAuthStore } from "@/store/authStore";
-import { formatHours, isOverdue } from "@/lib/utils";
+import { formatHours, formatDurationSeconds, isOverdue } from "@/lib/utils";
+import { getTimerDisplaySeconds, ActiveTimer } from "@/store/timerStore";
 import Link from "next/link";
+
+interface LiveTimerSnapshot {
+  customer_name?: string;
+  task_title?: string;
+  is_paused: boolean;
+  start_time: string;
+  elapsed_seconds: number;
+  last_resume_time?: string;
+}
+
+interface LiveTimerUser {
+  user_id: string;
+  full_name: string;
+  timers: LiveTimerSnapshot[];
+}
 
 interface Stats {
   open_tasks: number;
@@ -44,12 +60,37 @@ export default function DashboardPage() {
   const [recentTasks, setRecentTasks] = useState<any[]>([]);
   const [employeeEfficiency, setEmployeeEfficiency] = useState<EmployeeEfficiency[]>([]);
   const [loading, setLoading] = useState(true);
+  const [liveTimerUsers, setLiveTimerUsers] = useState<LiveTimerUser[]>([]);
+  const [, setTick] = useState(0);
 
   useEffect(() => {
     if (!user) return;
     if (user.role === "client") { router.push("/portal"); return; }
     loadDashboard();
   }, [user]);
+
+  // Live "who has a timer running right now" — admin only. Reads the same
+  // presence channel FloatingTimer broadcasts to (no DB writes involved),
+  // so it reflects reality instantly and clears itself if someone disconnects.
+  useEffect(() => {
+    if (!user || user.role !== "admin") return;
+    const channel = supabase.channel("global-timer-presence", { config: { presence: { key: user.id } } });
+    channel.on("presence", { event: "sync" }, () => {
+      const state = channel.presenceState();
+      const list = Object.values(state)
+        .flat()
+        .map((p: any) => p as LiveTimerUser)
+        .filter(p => p.user_id !== user.id && p.timers?.length);
+      setLiveTimerUsers(list);
+    }).subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [user]);
+
+  useEffect(() => {
+    if (liveTimerUsers.length === 0) return;
+    const id = setInterval(() => setTick(n => n + 1), 1000);
+    return () => clearInterval(id);
+  }, [liveTimerUsers.length]);
 
   const loadDashboard = async () => {
     try {
@@ -238,6 +279,46 @@ export default function DashboardPage() {
           accent="bg-emerald-400"
         />
       </div>
+
+      {/* Live timers — admin only */}
+      {user?.role === "admin" && liveTimerUsers.length > 0 && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Timer className="h-4 w-4 text-[#16a34a]" /> טיימרים פעילים כרגע
+              <span className="text-xs font-normal bg-[#f1f5f9] text-[#64748b] rounded-full px-2 py-0.5">
+                {liveTimerUsers.length} {liveTimerUsers.length === 1 ? "עובד" : "עובדים"}
+              </span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {liveTimerUsers.map(emp => (
+                <div key={emp.user_id} className="flex items-start gap-3">
+                  <div className="w-8 h-8 rounded-full bg-[#f1f5f9] flex items-center justify-center text-xs font-bold text-[#64748b] shrink-0 mt-0.5">
+                    {emp.full_name?.charAt(0) || "?"}
+                  </div>
+                  <div className="flex-1 min-w-0 space-y-1.5">
+                    <p className="text-sm font-medium text-[#0f172a]">{emp.full_name}</p>
+                    {emp.timers.map((t, i) => (
+                      <div key={i} className="flex items-center gap-2 text-xs">
+                        <div className={`w-2 h-2 rounded-full shrink-0 ${t.is_paused ? "bg-yellow-400" : "bg-[#16a34a] timer-pulse"}`} />
+                        <span className="text-[#64748b] truncate">
+                          {t.customer_name || "ללא לקוח"}{t.task_title ? ` · ${t.task_title}` : ""}
+                        </span>
+                        <span className={`font-mono font-bold tabular-nums shrink-0 ${t.is_paused ? "text-yellow-500" : "text-[#16a34a]"}`}>
+                          {formatDurationSeconds(getTimerDisplaySeconds(t as ActiveTimer))}
+                        </span>
+                        {t.is_paused && <span className="text-yellow-500 shrink-0">(מושהה)</span>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Efficiency metric — admin only */}
       {user?.role === "admin" && employeeEfficiency.length > 0 && (
