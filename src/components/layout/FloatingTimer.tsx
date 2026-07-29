@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Play, Pause, Square, Timer, Plus, X, Minus, ExternalLink, PictureInPicture, Search } from "lucide-react";
 import { useTimerStore, ActiveTimer, getTimerDisplaySeconds } from "@/store/timerStore";
+import { useTimerPresenceStore } from "@/store/timerPresenceStore";
 import { useAuthStore } from "@/store/authStore";
 import { supabase, authHeader } from "@/lib/supabase/client";
 import { formatDurationSeconds, cn } from "@/lib/utils";
@@ -89,18 +90,18 @@ export default function FloatingTimer() {
 
   // Broadcast "is my timer running" via presence so admins can see it live on
   // the dashboard — no DB writes, and it clears itself automatically if this
-  // tab disconnects (closed browser, lost network).
-  const presenceChannelRef = useRef<any>(null);
+  // tab disconnects (closed browser, lost network). Uses the one shared
+  // channel from timerPresenceStore — FloatingTimer is mounted app-wide, so
+  // this is the single place that ever creates it (see store for why: two
+  // separate subscriptions to the same channel name broke the realtime
+  // connection for the whole tab).
   useEffect(() => {
     if (!user) return;
-    const channel = supabase.channel("global-timer-presence", { config: { presence: { key: user.id } } });
-    channel.subscribe();
-    presenceChannelRef.current = channel;
-    return () => { supabase.removeChannel(channel); presenceChannelRef.current = null; };
+    useTimerPresenceStore.getState().ensureChannel(user.id);
   }, [user?.id]);
 
   useEffect(() => {
-    const channel = presenceChannelRef.current;
+    const channel = useTimerPresenceStore.getState().channel;
     if (!channel || !user) return;
     if (timers.length === 0) { channel.untrack(); return; }
     channel.track({

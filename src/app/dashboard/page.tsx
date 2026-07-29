@@ -9,22 +9,8 @@ import { supabase } from "@/lib/supabase/client";
 import { useAuthStore } from "@/store/authStore";
 import { formatHours, formatDurationSeconds, isOverdue } from "@/lib/utils";
 import { getTimerDisplaySeconds, ActiveTimer } from "@/store/timerStore";
+import { useTimerPresenceStore } from "@/store/timerPresenceStore";
 import Link from "next/link";
-
-interface LiveTimerSnapshot {
-  customer_name?: string;
-  task_title?: string;
-  is_paused: boolean;
-  start_time: string;
-  elapsed_seconds: number;
-  last_resume_time?: string;
-}
-
-interface LiveTimerUser {
-  user_id: string;
-  full_name: string;
-  timers: LiveTimerSnapshot[];
-}
 
 interface Stats {
   open_tasks: number;
@@ -60,7 +46,6 @@ export default function DashboardPage() {
   const [recentTasks, setRecentTasks] = useState<any[]>([]);
   const [employeeEfficiency, setEmployeeEfficiency] = useState<EmployeeEfficiency[]>([]);
   const [loading, setLoading] = useState(true);
-  const [liveTimerUsers, setLiveTimerUsers] = useState<LiveTimerUser[]>([]);
   const [, setTick] = useState(0);
 
   useEffect(() => {
@@ -69,22 +54,12 @@ export default function DashboardPage() {
     loadDashboard();
   }, [user]);
 
-  // Live "who has a timer running right now" — admin only. Reads the same
-  // presence channel FloatingTimer broadcasts to (no DB writes involved),
-  // so it reflects reality instantly and clears itself if someone disconnects.
-  useEffect(() => {
-    if (!user || user.role !== "admin") return;
-    const channel = supabase.channel("global-timer-presence", { config: { presence: { key: user.id } } });
-    channel.on("presence", { event: "sync" }, () => {
-      const state = channel.presenceState();
-      const list = Object.values(state)
-        .flat()
-        .map((p: any) => p as LiveTimerUser)
-        .filter(p => p.user_id !== user.id && p.timers?.length);
-      setLiveTimerUsers(list);
-    }).subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [user]);
+  // Live "who has a timer running right now" — admin only. Reads presence
+  // state kept in sync by FloatingTimer (mounted app-wide, owns the one
+  // shared channel) — no DB writes, reflects reality instantly, and clears
+  // itself automatically if someone disconnects.
+  const presenceUsers = useTimerPresenceStore(s => s.users);
+  const liveTimerUsers = presenceUsers.filter(p => p.user_id !== user?.id && p.timers?.length);
 
   useEffect(() => {
     if (liveTimerUsers.length === 0) return;
