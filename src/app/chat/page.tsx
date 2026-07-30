@@ -1318,6 +1318,13 @@ export default function ChatPage() {
                           broadcastTyping();
                         }}
                         onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+                        onPaste={e => {
+                          const item = Array.from(e.clipboardData.items).find(i => i.type.startsWith("image/"));
+                          if (!item) return; // no image on the clipboard — let normal text paste happen
+                          e.preventDefault();
+                          const file = item.getAsFile();
+                          if (file) handleFileAttach(file);
+                        }}
                         rows={1} style={{ maxHeight: "120px", minHeight: "40px" }} dir="rtl"
                       />
                       {newMessage.trim() ? (
