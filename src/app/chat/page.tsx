@@ -77,6 +77,7 @@ export default function ChatPage() {
   const [replyTo, setReplyTo]         = useState<ChatMessage | null>(null);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const dragCounterRef = useRef(0);
+  const [pendingAttachment, setPendingAttachment] = useState<{ file: File; previewUrl: string } | null>(null);
 
   // Voice recording
   const [recording, setRecording]         = useState(false);
@@ -464,6 +465,14 @@ export default function ChatPage() {
     if (fileAttachRef.current) fileAttachRef.current.value = "";
   };
 
+  // Stage a file (from the paperclip, a drop, or a paste) instead of sending it
+  // immediately — lets the user add a caption and hit send explicitly.
+  const stageAttachment = (file: File) => {
+    if (pendingAttachment) URL.revokeObjectURL(pendingAttachment.previewUrl);
+    setPendingAttachment({ file, previewUrl: URL.createObjectURL(file) });
+    textareaRef.current?.focus();
+  };
+
   // ─── Drag & drop a file onto the chat area ────────────────────
   const handleDragEnter = (e: React.DragEvent) => {
     if (!activeConv || !e.dataTransfer.types.includes("Files")) return;
@@ -487,23 +496,35 @@ export default function ChatPage() {
     setIsDraggingFile(false);
     if (!activeConv) return;
     const file = e.dataTransfer.files?.[0];
-    if (file) handleFileAttach(file);
+    if (file) stageAttachment(file);
   };
 
-  // ─── Send text ───────────────────────────────────────────────
+  // ─── Send text (+ optionally a staged attachment) ─────────────
   const handleSend = async () => {
-    if (!newMessage.trim() || !activeConv || !user) return;
-    setSending(true);
+    if (!activeConv || !user) return;
     const content = newMessage.trim();
+    const attachment = pendingAttachment;
+    if (!content && !attachment) return;
+    setSending(true);
+    // Captured before handleFileAttach (below) clears replyTo — so the quote
+    // attaches to the attachment when there is one, not to the caption too.
     const replyToId = replyTo?.id || null;
     setNewMessage("");
-    setReplyTo(null);
+    setPendingAttachment(null);
     if (textareaRef.current) textareaRef.current.style.height = "40px";
     try {
+      if (attachment) {
+        await handleFileAttach(attachment.file);
+        URL.revokeObjectURL(attachment.previewUrl);
+      } else {
+        setReplyTo(null);
+      }
+      if (!content) return;
+
       const res = await fetch("/api/chat-messages", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(await authHeader()) },
-        body: JSON.stringify({ conversation_id: activeConv.id, content, message_type: "text", reply_to: replyToId }),
+        body: JSON.stringify({ conversation_id: activeConv.id, content, message_type: "text", reply_to: attachment ? null : replyToId }),
       });
       const inserted = await res.json();
       // Add immediately to state — don't wait for realtime event
@@ -1157,6 +1178,25 @@ export default function ChatPage() {
 
                 {/* Input */}
                 <div className="bg-white border-t border-[#e2e8f0] p-3 shrink-0" onClick={e => e.nativeEvent.stopImmediatePropagation()}>
+                  {pendingAttachment && (
+                    <div className="flex items-center gap-2 mb-2 p-2 bg-[#f0fdf4] rounded-xl border border-[#bbf7d0]">
+                      {pendingAttachment.file.type.startsWith("image/") ? (
+                        <img src={pendingAttachment.previewUrl} alt="" className="w-10 h-10 rounded-lg object-cover shrink-0" />
+                      ) : (
+                        <div className="w-10 h-10 rounded-lg bg-white flex items-center justify-center shrink-0">
+                          <Paperclip className="h-4 w-4 text-[#16a34a]" />
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium text-[#16a34a]">מצורף</p>
+                        <p className="text-xs text-[#64748b] truncate">{pendingAttachment.file.name || "תמונה"}</p>
+                      </div>
+                      <button
+                        onClick={() => { URL.revokeObjectURL(pendingAttachment.previewUrl); setPendingAttachment(null); }}
+                        className="text-[#94a3b8] hover:text-[#374151] shrink-0"
+                      ><X className="h-4 w-4" /></button>
+                    </div>
+                  )}
                   {replyTo && (
                     <div className="flex items-center gap-2 mb-2 p-2 bg-[#f0fdf4] rounded-xl border border-[#bbf7d0]">
                       <Reply className="h-4 w-4 text-[#16a34a] shrink-0" />
@@ -1305,11 +1345,11 @@ export default function ChatPage() {
                         <Paperclip className="h-4 w-4" />
                       </button>
                       <input ref={fileAttachRef} type="file" className="hidden"
-                        onChange={e => { const f = e.target.files?.[0]; if (f) handleFileAttach(f); }} />
+                        onChange={e => { const f = e.target.files?.[0]; if (f) stageAttachment(f); e.target.value = ""; }} />
                       <textarea
                         ref={textareaRef}
                         className="flex-1 rounded-xl border border-[#e2e8f0] px-3 py-2 text-sm focus:outline-none focus:border-[#16a34a] resize-none bg-white"
-                        placeholder="כתוב הודעה... (Enter לשליחה, Shift+Enter לשורה חדשה)"
+                        placeholder={pendingAttachment ? "הוסף כיתוב (אופציונלי)..." : "כתוב הודעה... (Enter לשליחה, Shift+Enter לשורה חדשה)"}
                         value={newMessage}
                         onChange={e => {
                           setNewMessage(e.target.value);
@@ -1323,11 +1363,11 @@ export default function ChatPage() {
                           if (!item) return; // no image on the clipboard — let normal text paste happen
                           e.preventDefault();
                           const file = item.getAsFile();
-                          if (file) handleFileAttach(file);
+                          if (file) stageAttachment(file);
                         }}
                         rows={1} style={{ maxHeight: "120px", minHeight: "40px" }} dir="rtl"
                       />
-                      {newMessage.trim() ? (
+                      {newMessage.trim() || pendingAttachment ? (
                         <Button onClick={handleSend} loading={sending} size="icon" className="shrink-0"><Send className="h-4 w-4" /></Button>
                       ) : (
                         <button onMouseDown={startRecording} onTouchStart={startRecording}
