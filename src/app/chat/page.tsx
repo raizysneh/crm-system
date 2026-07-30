@@ -75,6 +75,8 @@ export default function ChatPage() {
   const [pinnedMessages, setPinnedMessages] = useState<Set<string>>(new Set());
   const [showReactionFor, setShowReactionFor] = useState<string | null>(null);
   const [replyTo, setReplyTo]         = useState<ChatMessage | null>(null);
+  const [isDraggingFile, setIsDraggingFile] = useState(false);
+  const dragCounterRef = useRef(0);
 
   // Voice recording
   const [recording, setRecording]         = useState(false);
@@ -460,6 +462,32 @@ export default function ChatPage() {
       toast.error(`שגיאה: ${err.message}`, { id: toastId });
     }
     if (fileAttachRef.current) fileAttachRef.current.value = "";
+  };
+
+  // ─── Drag & drop a file onto the chat area ────────────────────
+  const handleDragEnter = (e: React.DragEvent) => {
+    if (!activeConv || !e.dataTransfer.types.includes("Files")) return;
+    e.preventDefault();
+    dragCounterRef.current++;
+    setIsDraggingFile(true);
+  };
+  const handleDragOver = (e: React.DragEvent) => {
+    if (!activeConv || !e.dataTransfer.types.includes("Files")) return;
+    e.preventDefault(); // required for onDrop to fire
+  };
+  const handleDragLeave = (e: React.DragEvent) => {
+    if (!activeConv) return;
+    e.preventDefault();
+    dragCounterRef.current = Math.max(0, dragCounterRef.current - 1);
+    if (dragCounterRef.current === 0) setIsDraggingFile(false);
+  };
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    dragCounterRef.current = 0;
+    setIsDraggingFile(false);
+    if (!activeConv) return;
+    const file = e.dataTransfer.files?.[0];
+    if (file) handleFileAttach(file);
   };
 
   // ─── Send text ───────────────────────────────────────────────
@@ -856,7 +884,21 @@ export default function ChatPage() {
 
         {/* ── Chat Area ── */}
         <div className="flex-1 flex overflow-hidden">
-          <div className="flex-1 flex flex-col bg-[#f0f4f8] min-w-0">
+          <div
+            className="flex-1 flex flex-col bg-[#f0f4f8] min-w-0 relative"
+            onDragEnter={handleDragEnter}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+          >
+            {isDraggingFile && (
+              <div className="absolute inset-0 z-50 bg-[#16a34a]/10 backdrop-blur-[2px] border-4 border-dashed border-[#16a34a] rounded-xl flex items-center justify-center pointer-events-none">
+                <div className="bg-white rounded-2xl shadow-2xl px-8 py-6 flex flex-col items-center gap-2">
+                  <Paperclip className="h-8 w-8 text-[#16a34a]" />
+                  <p className="font-semibold text-[#0f172a]">שחררי כאן כדי לצרף</p>
+                </div>
+              </div>
+            )}
             {activeConv ? (
               <>
                 {/* Header */}
