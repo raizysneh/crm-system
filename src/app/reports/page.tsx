@@ -10,6 +10,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { supabase, authHeader } from "@/lib/supabase/client";
 import { useAuthStore } from "@/store/authStore";
 import { useTimerStore } from "@/store/timerStore";
+import { useReportsFilterStore } from "@/store/reportsFilterStore";
 import { toast } from "sonner";
 import { formatDurationSeconds, formatHours, secondsToHoursDecimal, cn } from "@/lib/utils";
 import * as XLSX from "xlsx";
@@ -255,17 +256,15 @@ export default function ReportsPage() {
   const [clients,  setClients]  = useState<{id:string;company_name:string}[]>([]);
   const [employees,setEmployees]= useState<{id:string;full_name:string}[]>([]);
   const [loading,  setLoading]  = useState(true);
-  const [filterClient,   setFilterClient]   = useState("all");
-  const [filterEmployee, setFilterEmployee] = useState("all");
-  const [dateFrom, setDateFrom] = useState(new Date().toISOString().split("T")[0]);
-  const [dateTo,   setDateTo]   = useState(new Date().toISOString().split("T")[0]);
-  const [quickFilter, setQuickFilter] = useState("today");
-  const [reportType,  setReportType]  = useState<ReportType>("detailed");
+  // Filters/view persist across navigation (see reportsFilterStore) — the page
+  // component unmounts on route change, so this can't just be local state.
+  const {
+    filterClient, filterEmployee, dateFrom, dateTo, quickFilter, reportType, includeEmployee, breakdownBy,
+    setFilterClient, setFilterEmployee, setDateFrom, setDateTo, setQuickFilter, setReportType, setIncludeEmployee, setBreakdownBy,
+  } = useReportsFilterStore();
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [expandedDays,   setExpandedDays]   = useState<Set<string>>(new Set());
   const [exportOpen,      setExportOpen]     = useState(false);
-  const [includeEmployee, setIncludeEmployee]= useState(true);
-  const [breakdownBy,     setBreakdownBy]    = useState<"customer"|"employee">("customer");
 
   useEffect(()=>{ loadData(); }, [filterClient,filterEmployee,dateFrom,dateTo]);
 
@@ -276,6 +275,12 @@ export default function ReportsPage() {
       case "yesterday":{ const y=new Date(now); y.setDate(y.getDate()-1); const d=y.toISOString().split("T")[0]; setDateFrom(d); setDateTo(d); break; }
       case "week":    { const w=new Date(now); w.setDate(w.getDate()-7); setDateFrom(w.toISOString().split("T")[0]); setDateTo(now.toISOString().split("T")[0]); break; }
       case "month":   { const m=new Date(now.getFullYear(),now.getMonth(),1); setDateFrom(m.toISOString().split("T")[0]); setDateTo(now.toISOString().split("T")[0]); break; }
+      case "lastMonth": {
+        const first = new Date(now.getFullYear(), now.getMonth()-1, 1);
+        const last  = new Date(now.getFullYear(), now.getMonth(), 0); // day 0 = last day of previous month
+        setDateFrom(first.toISOString().split("T")[0]); setDateTo(last.toISOString().split("T")[0]);
+        break;
+      }
     }
   },[quickFilter]);
 
@@ -586,7 +591,7 @@ export default function ReportsPage() {
         {/* Filters */}
         <Card><CardContent className="p-4 space-y-3">
           <div className="flex gap-2 flex-wrap">
-            {[["today","היום"],["yesterday","אתמול"],["week","שבוע"],["month","החודש"]].map(([k,l])=>(
+            {[["today","היום"],["yesterday","אתמול"],["week","שבוע"],["month","החודש"],["lastMonth","חודש שעבר"]].map(([k,l])=>(
               <button key={k} onClick={()=>setQuickFilter(k)}
                 className={cn("px-3 py-1.5 rounded-lg text-sm font-medium transition-colors",
                   quickFilter===k?"bg-[#16a34a] text-white":"bg-[#f1f5f9] text-[#64748b] hover:bg-[#e2e8f0]")}>{l}</button>
@@ -620,7 +625,7 @@ export default function ReportsPage() {
             {/* Employee toggle — admin only */}
             {user?.role==="admin" && (
               <label className="flex items-center gap-2 cursor-pointer select-none">
-                <div onClick={()=>setIncludeEmployee(v=>!v)}
+                <div onClick={()=>setIncludeEmployee(!includeEmployee)}
                   className={cn("w-8 h-4 rounded-full transition-colors relative shrink-0",includeEmployee?"bg-[#16a34a]":"bg-[#cbd5e1]")}>
                   <div className={cn("absolute top-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform",includeEmployee?"translate-x-0.5":"translate-x-4")} />
                 </div>
