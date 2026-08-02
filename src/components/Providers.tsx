@@ -31,14 +31,20 @@ export default function Providers({ children }: { children: React.ReactNode }) {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (session?.user) {
+        // AppLayout redirects to /login whenever (!isLoading && !user) — without
+        // this, a route mounted right after sign-in could render with the old
+        // isLoading=false/user=null combo mid-fetch and bounce straight back.
+        setLoading(true);
         const { data: profile } = await supabase
           .from("users")
           .select("*")
           .eq("id", session.user.id)
           .single();
         setUser(profile);
+        setLoading(false);
       } else {
         setUser(null);
+        setLoading(false);
       }
     });
 

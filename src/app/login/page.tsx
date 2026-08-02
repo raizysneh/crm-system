@@ -7,10 +7,22 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Eye, EyeOff, Building2, Lock, Mail, ShieldOff } from "lucide-react";
 import { supabase } from "@/lib/supabase/client";
+import { useAuthStore } from "@/store/authStore";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
+
+// Fetches the user's profile and puts it in the store ourselves, synchronously
+// before navigating — Providers.tsx's onAuthStateChange listener also does this,
+// but relying on it alone races the redirect: the freshly-mounted /dashboard
+// route can render before that async listener resolves and bounce back to
+// /login (fixed by a manual refresh, since a fresh load waits properly).
+async function loadUserIntoStore(userId: string) {
+  const { data: profile } = await supabase.from("users").select("*").eq("id", userId).single();
+  useAuthStore.getState().setUser(profile);
+  return profile;
+}
 
 type Mode = "login" | "forgot" | "mfa-blocked";
 
@@ -58,6 +70,7 @@ export default function LoginPage() {
         return;
       }
 
+      await loadUserIntoStore(authData.session.user.id);
       router.push("/dashboard");
     } catch {
       toast.error("שגיאה בהתחברות, נסה שוב");
@@ -94,6 +107,7 @@ export default function LoginPage() {
       }
 
       toast.success("האימות הוסר, מתחבר...");
+      await loadUserIntoStore(authData.session.user.id);
       router.push("/dashboard");
     } catch {
       toast.error("שגיאה, נסי שוב");

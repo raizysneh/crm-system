@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Download, BarChart3, ChevronRight, Play, Users, FileSpreadsheet, FileText, ChevronDown, List, AlignJustify, CalendarDays } from "lucide-react";
+import { Download, BarChart3, ChevronRight, Play, Users, FileSpreadsheet, FileText, ChevronDown, List, AlignJustify, CalendarDays, PieChart, Building2 } from "lucide-react";
 import Header from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -16,7 +16,13 @@ import * as XLSX from "xlsx";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
-type ReportType = "detailed" | "summary" | "weekly";
+type ReportType = "detailed" | "summary" | "weekly" | "breakdown";
+
+// Categorical palette (validated for CVD-safe adjacent contrast — see the
+// dataviz skill). Fixed order, never cycled/reassigned; a group past the 8th
+// slot folds into "אחר" (gray) instead of generating a new hue.
+const PIE_COLORS = ["#2a78d6","#eb6834","#1baf7a","#eda100","#e87ba4","#008300","#4a3aa7","#e34948"];
+const PIE_OTHER_COLOR = "#94a3b8";
 
 interface Entry {
   id: string; user_id: string; customer_id: string | null; task_id: string | null;
@@ -259,6 +265,7 @@ export default function ReportsPage() {
   const [expandedDays,   setExpandedDays]   = useState<Set<string>>(new Set());
   const [exportOpen,      setExportOpen]     = useState(false);
   const [includeEmployee, setIncludeEmployee]= useState(true);
+  const [breakdownBy,     setBreakdownBy]    = useState<"customer"|"employee">("customer");
 
   useEffect(()=>{ loadData(); }, [filterClient,filterEmployee,dateFrom,dateTo]);
 
@@ -321,6 +328,45 @@ export default function ReportsPage() {
       const g=map.get(k)!; g.totalSeconds+=e.duration||0; g.entries.push(e);
     }
     return Array.from(map.values()).sort((a,b)=>b.totalSeconds-a.totalSeconds);
+  })();
+
+  // flat employee groups (breakdown view, admin only)
+  interface EmployeeGroup { user_id: string | null; user_name: string; totalSeconds: number; entries: Entry[]; }
+  const employeeGroups: EmployeeGroup[] = (() => {
+    const map = new Map<string,EmployeeGroup>();
+    for(const e of entries){
+      const k=e.user_id||"__none__";
+      if(!map.has(k)) map.set(k,{user_id:e.user_id,user_name:e.user?.full_name||"לא ידוע",totalSeconds:0,entries:[]});
+      const g=map.get(k)!; g.totalSeconds+=e.duration||0; g.entries.push(e);
+    }
+    return Array.from(map.values()).sort((a,b)=>b.totalSeconds-a.totalSeconds);
+  })();
+
+  // Pie-ready slices for the breakdown view — folds anything past the 8-color
+  // categorical slot into a single "אחר" slice instead of generating a new hue.
+  interface PieSlice { key: string; name: string; seconds: number; color: string; }
+  const pieSlices: PieSlice[] = (() => {
+    const named = breakdownBy === "employee"
+      ? employeeGroups.map(g=>({key:g.user_id||"__none__",name:g.user_name,seconds:g.totalSeconds}))
+      : customerGroups.map(g=>({key:g.customer_id||"__none__",name:g.customer_name,seconds:g.totalSeconds}));
+    const head = named.slice(0,8).map((s,i)=>({...s,color:PIE_COLORS[i]}));
+    const rest = named.slice(8);
+    if(rest.length){
+      const restSeconds = rest.reduce((s,r)=>s+r.seconds,0);
+      head.push({key:"__other__",name:`אחר (${rest.length})`,seconds:restSeconds,color:PIE_OTHER_COLOR});
+    }
+    return head;
+  })();
+
+  const donutGradient = (() => {
+    if (totalSeconds === 0 || pieSlices.length === 0) return "#f1f5f9";
+    let acc = 0;
+    const stops = pieSlices.map(s => {
+      const pct = (s.seconds/totalSeconds)*100;
+      const from = acc; acc += pct;
+      return `${s.color} ${from}% ${acc}%`;
+    });
+    return `conic-gradient(${stops.join(", ")})`;
   })();
 
   // nested: day → (customer+project) → entries  — for detailed view
@@ -612,6 +658,7 @@ export default function ReportsPage() {
             {k:"detailed" as ReportType, label:"דוח מפורט",     icon:<List className="h-4 w-4" />},
             {k:"summary"  as ReportType, label:"דוח מקוצר",     icon:<AlignJustify className="h-4 w-4" />},
             {k:"weekly"   as ReportType, label:"דוח שבועי",     icon:<CalendarDays className="h-4 w-4" />},
+            {k:"breakdown" as ReportType, label:"פילוח",        icon:<PieChart className="h-4 w-4" />},
           ] as {k:ReportType;label:string;icon:React.ReactNode}[]).map(({k,label,icon})=>(
             <button key={k} onClick={()=>setReportType(k)}
               className={cn("flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all",
@@ -796,6 +843,64 @@ export default function ReportsPage() {
                 );
               })}
             </div>
+          )
+        )}
+
+        {/* ── BREAKDOWN — pie by client/employee for the selected period ── */}
+        {reportType==="breakdown" && (
+          loading ? (
+            <div className="h-80 bg-white rounded-xl animate-pulse border border-[#f1f5f9]" />
+          ) : pieSlices.length===0 ? (
+            <Card><CardContent className="text-center py-12 text-[#94a3b8]">
+              <PieChart className="h-12 w-12 mx-auto mb-3 opacity-20" /><p className="font-medium">אין נתונים לתקופה זו</p>
+            </CardContent></Card>
+          ) : (
+            <Card><CardContent className="p-5">
+              {user?.role==="admin" && (
+                <div className="flex gap-2 mb-5">
+                  <button onClick={()=>setBreakdownBy("customer")}
+                    className={cn("flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors",
+                      breakdownBy==="customer"?"bg-[#16a34a] text-white":"bg-[#f1f5f9] text-[#64748b] hover:bg-[#e2e8f0]")}>
+                    <Building2 className="h-3.5 w-3.5" /> לפי לקוח
+                  </button>
+                  <button onClick={()=>setBreakdownBy("employee")}
+                    className={cn("flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors",
+                      breakdownBy==="employee"?"bg-[#16a34a] text-white":"bg-[#f1f5f9] text-[#64748b] hover:bg-[#e2e8f0]")}>
+                    <Users className="h-3.5 w-3.5" /> לפי עובד
+                  </button>
+                </div>
+              )}
+
+              <div className="flex flex-col md:flex-row items-center gap-8">
+                {/* Donut */}
+                <div className="relative w-56 h-56 shrink-0">
+                  <div className="w-full h-full rounded-full" style={{ background: donutGradient }} />
+                  <div className="absolute inset-[20%] bg-white rounded-full flex flex-col items-center justify-center text-center shadow-[inset_0_0_0_1px_#f1f5f9]">
+                    <span className="text-2xl font-bold text-[#0f172a] font-mono" dir="ltr">{formatHours(totalSeconds)}</span>
+                    <span className="text-xs text-[#64748b] mt-0.5 px-2">
+                      {dateFrom===dateTo ? dateFrom : `${dateFrom} – ${dateTo}`}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Legend / table — direct-labeled, never color-alone */}
+                <div className="flex-1 w-full min-w-0 space-y-1">
+                  {pieSlices.map(s=>{
+                    const pct = totalSeconds>0 ? (s.seconds/totalSeconds)*100 : 0;
+                    return (
+                      <div key={s.key} className="flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-[#f8fafc] transition-colors">
+                        <span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: s.color }} />
+                        <span className="flex-1 text-sm font-medium text-[#0f172a] truncate">{s.name}</span>
+                        <span className="text-xs text-[#94a3b8] w-10 text-left shrink-0">{pct.toFixed(0)}%</span>
+                        <span className="font-mono font-bold text-[#16a34a] text-sm w-20 text-left shrink-0" dir="ltr">
+                          {formatDurationSeconds(s.seconds)}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </CardContent></Card>
           )
         )}
       </div>
