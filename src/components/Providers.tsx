@@ -29,19 +29,21 @@ export default function Providers({ children }: { children: React.ReactNode }) {
       setLoading(false);
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (session?.user) {
-        // AppLayout redirects to /login whenever (!isLoading && !user) — without
-        // this, a route mounted right after sign-in could render with the old
-        // isLoading=false/user=null combo mid-fetch and bounce straight back.
-        setLoading(true);
+        // AppLayout redirects to /login whenever (!isLoading && !user) — gate the
+        // spinner only for an actual sign-in. This event also fires on background
+        // TOKEN_REFRESHED (tab refocus, periodic refresh) — blanking the whole app
+        // behind the loading spinner on every one of those was the regression that
+        // brought the "stuck loading" complaints back, now happening mid-session too.
+        if (event === "SIGNED_IN") setLoading(true);
         const { data: profile } = await supabase
           .from("users")
           .select("*")
           .eq("id", session.user.id)
           .single();
         setUser(profile);
-        setLoading(false);
+        if (event === "SIGNED_IN") setLoading(false);
       } else {
         setUser(null);
         setLoading(false);

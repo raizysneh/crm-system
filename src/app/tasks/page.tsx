@@ -11,6 +11,7 @@ import { isOverdue } from "@/lib/utils";
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 import { Task, Customer, User } from "@/types";
 import { useAuthStore } from "@/store/authStore";
+import { useTasksFilterStore } from "@/store/tasksFilterStore";
 import { toast } from "sonner";
 import TaskCard from "@/components/tasks/TaskCard";
 import TaskKanban from "@/components/tasks/TaskKanban";
@@ -25,18 +26,16 @@ export default function TasksPage() {
   const [clients, setClients] = useState<Customer[]>([]);
   const [employees, setEmployees] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
-  const [viewMode, setViewMode] = useState<ViewMode>("list");
   const [showForm, setShowForm] = useState(false);
   const [editTask, setEditTask] = useState<Task | null>(null);
   const [search, setSearch] = useState("");
-  const [filterStatus, setFilterStatus] = useState("all");
-  const [filterPriority, setFilterPriority] = useState("all");
-  const [filterClient, setFilterClient] = useState("all");
-  // "me" = show only own tasks (default for everyone), "all" = all tasks (admin only), or specific user id
-  const [filterEmployee, setFilterEmployee] = useState("me");
-  const [showArchive, setShowArchive] = useState(false);
   const [archivedCount, setArchivedCount] = useState(0);
-  const [showFuture, setShowFuture] = useState(false);
+  // Filters/view persist across navigation (see tasksFilterStore) — the page
+  // component unmounts on route change, so this can't just be local state.
+  const {
+    viewMode, filterStatus, filterPriority, filterClient, filterEmployee, showArchive, showFuture,
+    setViewMode, setFilterStatus, setFilterPriority, setFilterClient, setFilterEmployee, setShowArchive, setShowFuture,
+  } = useTasksFilterStore();
 
   useEffect(() => {
     loadData();
@@ -173,7 +172,7 @@ export default function TasksPage() {
           ))}
           {/* Archive card */}
           <button
-            onClick={() => setShowArchive(v => !v)}
+            onClick={() => setShowArchive(!showArchive)}
             className={`rounded-xl border p-4 flex items-center gap-3 transition-all text-right w-full ${
               showArchive
                 ? "bg-green-100 border-green-300"
@@ -285,7 +284,7 @@ export default function TasksPage() {
           </div>
 
           <button
-            onClick={() => setShowFuture(v => !v)}
+            onClick={() => setShowFuture(!showFuture)}
             title="הצג/הסתר משימות עתידיות"
             className={`flex items-center gap-1.5 text-sm px-3 py-2 rounded-lg border transition-colors ${
               showFuture

@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { toast } from "sonner";
 
 export interface ActiveTimer {
   id: string;
@@ -50,6 +51,12 @@ export const useTimerStore = create<TimerStore>()(
       activeTimer: null,
 
       startTimer: (data = {}) => {
+        // One running/paused timer per customer, no matter which screen it was
+        // started from (task card, kanban, reports "continue", etc.).
+        if (data.customer_id && get().timers.some(t => t.customer_id === data.customer_id)) {
+          toast.error(`כבר יש טיימר פעיל על ${data.customer_name || "הלקוח הזה"}`);
+          return;
+        }
         const now = new Date().toISOString();
         const t: ActiveTimer = {
           id: `t_${Date.now()}`,
